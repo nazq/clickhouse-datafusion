@@ -1,0 +1,393 @@
+mod engine;
+
+use std::collections::HashMap;
+use std::sync::Arc;
+
+use clickhouse_arrow::{
+    ArrowConnectionPoolBuilder, ArrowOptions, ArrowPoolBuilder, ClientBuilder, CreateOptions,
+    Destination,
+};
+use datafusion::arrow::datatypes::SchemaRef;
+use datafusion::catalog::{CatalogProvider, TableProviderFactory};
+use datafusion::common::{Constraints, DFSchema};
+use datafusion::error::{DataFusionError, Result};
+use datafusion::logical_expr::CreateExternalTable;
+use datafusion::prelude::*;
+use datafusion::sql::TableReference;
+use tracing::{debug, error};
+
+pub use self::engine::*;
+use crate::connection::ClickHouseConnectionPool;
+use crate::table_factory::ClickHouseTableProviderFactory;
+use crate::utils::params::*;
+use crate::utils::{self, register_builtins};
+use crate::{ClickHouseCatalogProvider, ClickHouseTableFactory};
+
+/// The default `DataFusion` catalog name if no other name is provided.
+pub const DEFAULT_CLICKHOUSE_CATALOG: &str = "clickhouse";
+
+/// Simple function to provide default [`ArrowOptions`] fit for common use
+pub fn default_arrow_options() -> ArrowOptions {
+    ArrowOptions::default()
+        .with_strings_as_strings(true)
+        .with_strict_schema(false)
+        .with_disable_strict_schema_ddl(true)
+        .with_nullable_array_default_empty(true)
+}
+
+/// Entrypoint builder for `ClickHouse` and `DataFusion` integration.
+///
+/// Ensures `ClickHouse` udfs are registered in [`SessionContext`], the pool is attached to the
+/// [`ClickHouseTableProviderFactory`], and `ClickHouse` is reachable by the provided endpoint.
+pub struct ClickHouseBuilder {
+    endpoint:     Destination,
+    pool_builder: ArrowConnectionPoolBuilder,
+    factory:      Arc<ClickHouseTableProviderFactory>,
+}
+
+impl ClickHouseBuilder {
+    /// Create new `ClickHouseBuilder` that can be used to configure both the
+    /// [`clickhouse_arrow::ClientBuilder`], the [`clickhouse_arrow::ArrowPoolBuilder`], and be
+    /// "built" into a [`ClickHouseCatalogBuilder`] for interacting with `ClickHouse` databases and
+    /// tables.
+    ///
+    /// NOTE: While `clickhouse_arrow` defaults to binary encoding for strings (via
+    /// [`clickhouse_arrow::ArrowOptions::strings_as_strings`] == false), for DataFusion the
+    /// default is `true`.
+    pub fn new(endpoint: impl Into<Destination>) -> Self {
+        let endpoint = endpoint.into();
+        let pool_builder = ArrowConnectionPoolBuilder::new(endpoint.clone())
+            .configure_client(|c| c.with_arrow_options(default_arrow_options()));
+        Self { endpoint, pool_builder, factory: Arc::new(ClickHouseTableProviderFactory::new()) }
+    }
+
+    pub fn new_with_pool_builder(
+        endpoint: impl Into<Destination>,
+        pool_builder: ArrowConnectionPoolBuilder,
+    ) -> Self {
+        let endpoint = endpoint.into();
+        Self { endpoint, pool_builder, factory: Arc::new(ClickHouseTableProviderFactory::new()) }
+    }
+
+    // TODO: Docs - also link to documentation on clickhouse-arrow
+    //
+    /// Configure the underlying [`clickhouse_arrow::ClientBuilder`].
+    #[must_use]
+    pub fn configure_client(mut self, f: impl FnOnce(ClientBuilder) -> ClientBuilder) -> Self {
+        self.pool_builder = self.pool_builder.configure_client(f);
+        self
+    }
+
+    // TODO: Docs - also link to documentation on clickhouse-arrow
+    //
+    /// Configure the underlying [`clickhouse_arrow::ArrowPoolBuilder`].
+    #[must_use]
+    pub fn configure_pool(mut self, f: impl FnOnce(ArrowPoolBuilder) -> ArrowPoolBuilder) -> Self {
+        self.pool_builder = self.pool_builder.configure_pool(f);
+        self
+    }
+
+    // TODO: Docs - also link to documentation on clickhouse-arrow
+    //
+    /// `clickhouse_arrow` defaults to binary encoding for
+    /// [`datafusion::arrow::datatypes::DataType::Utf8`] columns, the default is inverted for
+    /// DataFusion. This disables that change and uses binary encoding for strings.
+    #[must_use]
+    pub fn configure_arrow_options(mut self, f: impl FnOnce(ArrowOptions) -> ArrowOptions) -> Self {
+        self.pool_builder = self.pool_builder.configure_client(|c| {
+            let options = c.options().ext.arrow.unwrap_or(default_arrow_options());
+            c.with_arrow_options(f(options))
+        });
+        self
+    }
+
+    // TODO: Docs - why would I do this?
+    /// Sets the factory for the `ClickHouse` table provider.
+    pub fn factory(mut self, factory: Arc<ClickHouseTableProviderFactory>) -> Self {
+        self.factory = factory;
+        self
+    }
+
+    // TODO: Docs - also mention how this is the only way to construct a ClickHouseCatalogBuilder
+    //
+    /// Build ensures `ClickHouse` builtins are registered (such as nested functions), the pool is
+    /// attached to the factory, the `ClickHouse` endpoint is reachable, and the catalog is created
+    /// and registered to the [`SessionContext`].
+    pub async fn build_catalog(
+        self,
+        ctx: &SessionContext,
+        catalog: Option<&str>,
+    ) -> Result<ClickHouseCatalogBuilder> {
+        register_builtins(ctx);
+
+        let catalog = catalog.unwrap_or(DEFAULT_CLICKHOUSE_CATALOG).to_string();
+        let database = self.pool_builder.client_options().default_database.clone();
+        debug!(catalog, database, "Attaching pool to ClickHouse table factory");
+
+        let endpoint = self.endpoint.to_string();
+        let factory = self.factory;
+        let pool = factory.attach_pool_builder(self.endpoint, self.pool_builder).await?;
+
+        ClickHouseCatalogBuilder::try_new(ctx, catalog, database, endpoint, pool, factory).await
+    }
+}
+
+/// [`ClickHouseCatalogBuilder`] can be used to create tables, register existing tables, register
+/// "external" tables (external to `ClickHouse`), and finally register the `ClickHouse` catalog,
+/// providing federation if desired.
+#[derive(Clone)]
+pub struct ClickHouseCatalogBuilder {
+    catalog:  String,
+    schema:   String,
+    endpoint: String,
+    pool:     ClickHouseConnectionPool,
+    factory:  Arc<ClickHouseTableProviderFactory>,
+    provider: Arc<ClickHouseCatalogProvider>,
+}
+
+impl ClickHouseCatalogBuilder {
+    // TODO: Docs
+    /// Internal constructor
+    async fn try_new(
+        ctx: &SessionContext,
+        catalog: impl Into<String>,
+        default_schema: impl Into<String>,
+        endpoint: impl Into<String>,
+        pool: ClickHouseConnectionPool,
+        factory: Arc<ClickHouseTableProviderFactory>,
+    ) -> Result<Self> {
+        let schema = default_schema.into();
+        let catalog = catalog.into();
+        let endpoint = endpoint.into();
+
+        // Must have a schema
+        let schema = if schema.is_empty() { "default".to_string() } else { schema };
+
+        // Ensure the database exists if not default
+        if schema != "default" {
+            debug!(schema, "Database not default, attempting create");
+            utils::create_database(&schema, &pool).await?;
+        }
+
+        // Register catalog or create a new one
+        let provider = Arc::new(
+            ClickHouseCatalogProvider::try_new(pool.clone())
+                .await
+                .inspect_err(|error| error!(?error, "Failed to register catalog {catalog}"))?,
+        );
+        ctx.register_catalog(catalog.as_str(), provider.clone());
+
+        // Log the schemas for reference
+        let schemas = provider.schema_names();
+        debug!(catalog, ?schemas, "Registered catalog provider");
+
+        Ok(ClickHouseCatalogBuilder { catalog, schema, endpoint, pool, factory, provider })
+    }
+
+    // TODO: Docs
+    pub fn name(&self) -> &str { &self.catalog }
+
+    // TODO: Docs
+    pub fn schema(&self) -> &str { &self.schema }
+
+    // TODO: Docs
+    pub fn connection_pool(&self) -> &ClickHouseConnectionPool { &self.pool }
+
+    // TODO: Docs
+    pub async fn with_schema(mut self, name: impl Into<String>) -> Result<Self> {
+        let name = name.into();
+
+        // Don't re-create if schema is already set
+        if name == self.schema {
+            return Ok(self);
+        }
+
+        self.schema = name;
+
+        // Ensure the database exists if not default
+        if self.schema != "default" {
+            debug!(schema = self.schema, "Database not default, attempting create");
+            utils::create_database(&self.schema, &self.pool).await?;
+        }
+
+        // Be sure to refresh the catalog before setting the schema
+        self.provider.refresh_catalog(&self.pool).await?;
+
+        Ok(self)
+    }
+
+    /// # Return
+    ///
+    /// A [`ClickHouseTableCreator`] that can be used to create tables in the remote `ClickHouse`
+    /// instance.
+    pub fn with_table(
+        &self,
+        name: impl Into<String>,
+        engine: impl Into<ClickHouseEngine>,
+        schema: SchemaRef,
+    ) -> ClickHouseTableCreator {
+        let table = name.into();
+        let options = CreateOptions::new(engine.into().to_string());
+        debug!(schema = self.schema, table, ?options, "Initializing table creator");
+        ClickHouseTableCreator { name: table, builder: self.clone(), options, schema }
+    }
+
+    /// # Return
+    ///
+    /// A [`ClickHouseTableCreator`] that can be used to create tables in the remote `ClickHouse`
+    /// instance.
+    pub fn with_table_and_options(
+        &self,
+        name: impl Into<String>,
+        schema: SchemaRef,
+        options: CreateOptions,
+    ) -> ClickHouseTableCreator {
+        let table = name.into();
+        debug!(schema = self.schema, table, ?options, "Initializing table creator");
+        ClickHouseTableCreator { name: table, builder: self.clone(), options, schema }
+    }
+
+    // TODO: Docs - What does it do? Docs are lacking and hard to understand. It seems this will
+    // allow ad-hoc registration of ClickHouse tables, without going through the
+    // ClickHouseTableCreator.
+    //
+    /// Registers a specific `ClickHouse` table, optionally renaming it in the session state.
+    pub async fn register_table(
+        &self,
+        name: impl Into<TableReference>,
+        name_as: Option<impl Into<TableReference>>,
+        ctx: &SessionContext,
+    ) -> Result<()> {
+        let name = name.into();
+        let database = name.schema().unwrap_or(&self.schema);
+        let exists =
+            self.pool.connect().await?.tables(database).await?.contains(&name.table().to_string());
+
+        if !exists {
+            return Err(DataFusionError::Plan(format!(
+                "Table '{name}' does not exist in ClickHouse database '{database}', use \
+                 `table_creator` instead"
+            )));
+        }
+
+        let table = TableReference::full(self.catalog.as_str(), database, name.table());
+        let table_as = name_as.map(Into::into).unwrap_or(table.clone());
+
+        let factory = ClickHouseTableFactory::new(self.pool.clone());
+        let provider = factory.table_provider(table).await?;
+        ctx.register_table(table_as, provider)?;
+
+        Ok(())
+    }
+
+    // TODO: Remove - DOCS!!! Either THIS or `build`/`build_federated` MUST be called for table
+    // creation to take effect.
+    //
+    /// Build the current `schema` (database) being managed by this catalog, optionally registering
+    /// a new schema to continue building
+    pub async fn build_schema(
+        mut self,
+        new_schema: Option<String>,
+        ctx: &SessionContext,
+    ) -> Result<Self> {
+        let _catalog = self.build(ctx).await?;
+        self.schema = new_schema.unwrap_or(self.schema);
+        Ok(self)
+    }
+
+    /// Re-register the catalog, updating the [`SessionContext`], and return the updated context.
+    ///
+    /// NOTE: It is important to use the [`SessionContext`] provided back from this function.
+    #[cfg(feature = "federation")]
+    pub async fn build_federated(&self, ctx: &SessionContext) -> Result<SessionContext> {
+        let ctx = crate::federation::federate_session_context(Some(ctx));
+        let _catalog = self.build(&ctx).await?;
+        debug!(catalog = self.catalog, "Federated catalog registered with datafusion context");
+        Ok(ctx)
+    }
+
+    /// Re-registers the catalog provider, re-configures the [`SessionContext`], and return a
+    /// clone of the catalog.
+    pub async fn build(&self, ctx: &SessionContext) -> Result<Arc<ClickHouseCatalogProvider>> {
+        let catalog = self.provider.clone();
+        debug!(catalog = self.catalog, "ClickHouse catalog created");
+
+        // Re-register UDFs
+        register_builtins(ctx);
+
+        // Re-register catalog
+        catalog.refresh_catalog(&self.pool).await?;
+        ctx.register_catalog(&self.catalog, catalog.clone());
+
+        Ok(catalog)
+    }
+}
+
+/// Builder phase for creating `ClickHouse` tables.
+#[derive(Clone)]
+pub struct ClickHouseTableCreator {
+    name:    String,
+    builder: ClickHouseCatalogBuilder,
+    schema:  SchemaRef,
+    options: CreateOptions,
+}
+
+impl ClickHouseTableCreator {
+    /// Update the underlying table create options that will be passed to clickhouse.
+    ///
+    /// See [`CreateOptions`] for more information.
+    #[must_use]
+    pub fn update_create_options(
+        mut self,
+        update: impl Fn(CreateOptions) -> CreateOptions,
+    ) -> Self {
+        self.options = update(self.options);
+        self
+    }
+
+    /// Create the table, returning back a [`ClickHouseCatalogBuilder`] to create more tables.
+    pub async fn create(self, ctx: &SessionContext) -> Result<ClickHouseCatalogBuilder> {
+        let schema = self.builder.schema.clone();
+        let table = self.name;
+
+        let column_defaults = self
+            .options
+            .clone()
+            .defaults
+            .unwrap_or_default()
+            .into_iter()
+            .map(|(col, value)| (col, default_str_to_expr(&value)))
+            .collect::<HashMap<_, _>>();
+
+        let mut options = super::utils::create_options_to_params(self.options).into_params();
+        let _ = options.insert(ENDPOINT_PARAM.into(), self.builder.endpoint.clone());
+
+        let table_ref = TableReference::partial(schema.as_str(), table.as_str());
+        let cmd = CreateExternalTable {
+            name: table_ref.clone(),
+            schema: Arc::new(DFSchema::try_from(Arc::clone(&self.schema))?),
+            options,
+            column_defaults,
+            constraints: Constraints::empty(),
+            table_partition_cols: vec![],
+            if_not_exists: false,
+            location: String::new(),
+            file_type: String::new(),
+            temporary: false,
+            definition: None,
+            order_exprs: vec![],
+            unbounded: false,
+        };
+        let _provider = self
+            .builder
+            .factory
+            .create(&ctx.state(), &cmd)
+            .await
+            .inspect_err(|error| error!(?error, table, "Factory error creating table"))?;
+        debug!(table, "Table created, catalog will be refreshed in `build`");
+
+        // TODO: Remove - does anything need to be refreshed??
+
+        Ok(self.builder)
+    }
+}

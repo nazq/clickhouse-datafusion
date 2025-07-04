@@ -1,0 +1,72 @@
+[package]
+name = "clickhouse-datafusion"
+version = "0.1.0"
+edition = "2024"
+
+[features]
+default = ["federation"]
+federation = [
+    "dep:datafusion-federation",
+    "datafusion-table-providers/federation",
+]
+cloud = ["clickhouse-arrow/cloud"]
+
+test-utils = [
+    "clickhouse-arrow/test_utils",
+]
+
+[dependencies]
+async-trait = "0.1"
+clickhouse-arrow = { version = "0.1" }
+dashmap = "6"
+datafusion = { version = "48" }
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+parking_lot = "0.12"
+pin-project = "1"
+thiserror = "2"
+tracing = "0.1"
+tokio = { version = "1", features = ["sync", "rt", "macros"] }
+
+# --- OPTIONAL ----
+datafusion-federation = { version = "0.4", features = ["sql"], optional = true }
+# NOTE: Only here to provide compatibility in certain areas
+datafusion-table-providers = { version = "0.6", optional = true }
+
+[workspace.lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+# Detects large stack-allocated futures that may cause stack overflow crashes (see threshold in clippy.toml)
+large_futures = "warn"
+clone_on_ref_ptr = "warn"
+must_use_candidate = "allow"
+
+[workspace.lints.rust]
+unused_imports = "deny"
+elided_lifetimes_in_paths = "deny"
+explicit_outlives_requirements = "warn"
+let_underscore_drop = "warn"
+missing_copy_implementations = "warn"
+redundant_lifetimes = "warn"
+rust_2024_incompatible_pat = "warn"
+single_use_lifetimes = "warn"
+trivial_numeric_casts = "warn"
+unit_bindings = "warn"
+unnameable_types = "warn"
+unreachable_pub = "warn"
+unsafe_op_in_unsafe_fn = "warn"
+unused_crate_dependencies = "warn"
+unused_import_braces = "warn"
+unused_lifetimes = "warn"
+unused_macro_rules = "warn"
+unused_results = "warn"
+unused_qualifications = "warn"
+variant_size_differences = "warn"
+
+# INTEGRATION TESTS
+
+[[test]]
+name = "e2e"
+required-features = ["test-utils"]
+
+[[test]]
+name = "federation_e2e"
+required-features = ["test-utils"]
