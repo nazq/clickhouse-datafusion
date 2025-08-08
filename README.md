@@ -1,6 +1,6 @@
 # 🚇 `Clickhouse` & `DataFusion`
 
-Extending `DataFusion` with `ClickHouse` support using `clickhouse-arrow`.
+Extending `DataFusion` with `ClickHouse` support using [clickhouse-arrow](https://github.com/GeorgeLeePatterson/clickhouse-arrow).
 
 [![Crates.io](https://img.shields.io/crates/v/clickhouse-datafusion.svg)](https://crates.io/crates/clickhouse-datafusion)
 [![Documentation](https://docs.rs/clickhouse-datafusion/badge.svg)](https://docs.rs/clickhouse-datafusion)
