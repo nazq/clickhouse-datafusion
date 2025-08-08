@@ -1,6 +1,6 @@
-# 🚇 `Clickhouse` `DataFusion` Integration
+# 🚇 `Clickhouse` & `DataFusion`
 
-Extending `DataFusion` with `Clickhouse` support using `clickhouse-arrow`.
+Extending `DataFusion` with `ClickHouse` support using `clickhouse-arrow`.
 
 > TODO: Improve description
 
