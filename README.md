@@ -2,7 +2,11 @@
 
 Extending `DataFusion` with `ClickHouse` support using `clickhouse-arrow`.
 
-> TODO: Improve description
+[![Crates.io](https://img.shields.io/crates/v/clickhouse-datafusion.svg)](https://crates.io/crates/clickhouse-datafusion)
+[![Documentation](https://docs.rs/clickhouse-datafusion/badge.svg)](https://docs.rs/clickhouse-datafusion)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+[![Build Status](https://img.shields.io/github/actions/workflow/status/GeorgeLeePatterson/clickhouse-datafusion/ci.yml?branch=main)](https://github.com/GeorgeLeePatterson/clickhouse-datafusion/actions)
+[![Coverage](https://codecov.io/gh/GeorgeLeePatterson/clickhouse-datafusion/branch/main/graph/badge.svg)](https://codecov.io/gh/GeorgeLeePatterson/clickhouse-datafusion)
 
 ## `ClickHouse`, `Arrow`, and `DataFusion`
 
