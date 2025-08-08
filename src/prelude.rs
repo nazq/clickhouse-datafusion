@@ -10,11 +10,17 @@ mod reexports {
 
 pub use reexports::*;
 
-pub use super::builders::{ClickHouseBuilder, ClickHouseEngine};
-pub use super::connection::{ArrowPoolConnection, ClickHouseConnection, ClickHouseConnectionPool};
+pub use super::analyzer::function_pushdown::ClickHouseFunctionPushdown;
+pub use super::builders::ClickHouseBuilder;
+#[cfg(not(feature = "mocks"))]
+pub use super::connection::ArrowPoolConnection;
+pub use super::connection::{ClickHouseConnection, ClickHouseConnectionPool};
+pub use super::providers::*;
 pub use super::sink::ClickHouseDataSink;
 pub use super::sql::SqlTable;
 pub use super::table_factory::{ClickHouseTableFactory, ClickHouseTableProviderFactory};
-pub use super::table_provider::ClickHouseTableProvider;
-pub use super::udfs::function::clickhouse_func_udf;
+pub use super::udfs::eval::clickhouse_eval_udf;
 pub use super::udfs::register_clickhouse_functions;
+
+// TODO: crate::federation exports (esp traits)
+// TODO: crate::context exports (esp traits)

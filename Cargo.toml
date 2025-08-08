@@ -2,44 +2,65 @@
 name = "clickhouse-datafusion"
 version = "0.1.0"
 edition = "2024"
+authors = ["George Lee Patterson <patterson.george@gmail.com>"]
+license = "Apache-2.0"
+keywords = ["clickhouse", "datafusion", "arrow", "database", "performance"]
+categories = ["database"]
+repository = "https://github.com/georgeleepatterson/clickhouse-datafusion"
+homepage = "https://github.com/georgeleepatterson/clickhouse-datafusion"
+documentation = "https://docs.rs/clickhouse-datafusion"
 
 [features]
-default = ["federation"]
-federation = [
-    "dep:datafusion-federation",
-    "datafusion-table-providers/federation",
-]
+default = []
+# Federation through the `datafusion-federation` crate.
+federation = ["dep:datafusion-federation"]
+# Supports passing additional cloud-specific params during Catalog creation to the underlying client
 cloud = ["clickhouse-arrow/cloud"]
 
+# For testing and examples
 test-utils = [
-    "clickhouse-arrow/test_utils",
+    "clickhouse-arrow/test-utils",
+    "dep:tokio",
 ]
+mocks = [] # Used for unit tests and connection mocking
 
 [dependencies]
 async-trait = "0.1"
 clickhouse-arrow = { version = "0.1" }
 dashmap = "6"
-datafusion = { version = "48" }
+# TODO: Remove
+# datafusion = { path = "../datafusion/datafusion/core" }
+datafusion = "49"
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
 parking_lot = "0.12"
 pin-project = "1"
-thiserror = "2"
 tracing = "0.1"
-tokio = { version = "1", features = ["sync", "rt", "macros"] }
+
+# Testing
+tokio = { version = "1", features = ["sync", "rt", "macros"], optional = true }
 
 # --- OPTIONAL ----
-datafusion-federation = { version = "0.4", features = ["sql"], optional = true }
-# NOTE: Only here to provide compatibility in certain areas
-datafusion-table-providers = { version = "0.6", optional = true }
+# NOTE: There's a current "TODO" to enforce the compatibility fully, but updates seem to lag
+# datafusion-table-providers = { version = "0.6", optional = true }
 
-[workspace.lints.clippy]
+# TODO: Remove this when upstream PR has been merged
+# ref: [PR #135](https://github.com/datafusion-contrib/datafusion-federation/pull/135)
+[dependencies.datafusion-federation]
+# TODO: Remove
+# path = "../datafusion-federation/datafusion-federation"
+git = "https://github.com/GeorgeLeePatterson/datafusion-federation"
+branch = "fix-unnest-with-new-exprs"
+features = ["sql"]
+optional = true
+
+[lints.clippy]
 pedantic = { level = "warn", priority = -1 }
 # Detects large stack-allocated futures that may cause stack overflow crashes (see threshold in clippy.toml)
 large_futures = "warn"
 clone_on_ref_ptr = "warn"
 must_use_candidate = "allow"
 
-[workspace.lints.rust]
+[lints.rust]
 unused_imports = "deny"
 elided_lifetimes_in_paths = "deny"
 explicit_outlives_requirements = "warn"
@@ -61,12 +82,33 @@ unused_results = "warn"
 unused_qualifications = "warn"
 variant_size_differences = "warn"
 
+[profile.release-with-debug]
+inherits = "release"
+debug = "full"
+
+[profile.release-lto]
+inherits = "release"
+lto = true
+opt-level = 3
+codegen-units = 1
+
+[profile.instruments]
+inherits = "release"
+debug = "full"
+lto = "off"
+codegen-units = 16       # default
+opt-level = 2
+debug-assertions = false
+incremental = false
+
+[profile.release-with-debug.package."*"]
+debug = "full"
+
+[profile.instruments.package."*"]
+debug = "full"
+
 # INTEGRATION TESTS
 
 [[test]]
 name = "e2e"
-required-features = ["test-utils"]
-
-[[test]]
-name = "federation_e2e"
 required-features = ["test-utils"]

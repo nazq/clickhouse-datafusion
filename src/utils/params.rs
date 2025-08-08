@@ -69,7 +69,9 @@ pub(crate) const ALL_PARAMS: &[&str; 16] = &[
 ];
 
 /// Helper function to parse a string into a vector of strings
-fn parse_param_vec(param: &str) -> Vec<String> { param.split(',').map(|s| s.to_string()).collect() }
+fn parse_param_vec(param: &str) -> Vec<String> {
+    param.split(',').map(ToString::to_string).collect()
+}
 
 /// Helper function to parse a string into a hashmap of strings -> strings
 fn parse_param_hashmap(param: &str) -> HashMap<String, String> {
@@ -79,14 +81,14 @@ fn parse_param_hashmap(param: &str) -> HashMap<String, String> {
         let key = parts.next();
         let value = parts.next();
         if let (Some(k), Some(v)) = (key, value) {
-            let _ = params.insert(k.to_string(), v.to_string());
+            drop(params.insert(k.to_string(), v.to_string()));
         }
     }
     params
 }
 
 /// Helper function to convert a vec of strings into a string param
-fn vec_to_param(param: Vec<String>) -> String { param.join(",") }
+fn vec_to_param(param: &[String]) -> String { param.join(",") }
 
 /// Wrapper for serialized client options
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -127,52 +129,53 @@ impl std::fmt::Display for ClientOption {
 
 /// [`crate::ClickHouseTableProviderFactory`] must receive all parameters as strings, this
 /// function is helpful to serialize the required options
+///
+/// # Errors
+/// - Returns an error if settings contain `ClientOption` keys
 pub fn pool_builder_to_params(
     endpoint: impl Into<String>,
     builder: &ArrowConnectionPoolBuilder,
 ) -> Result<ClientOptionParams> {
-    let mut params = HashMap::from_iter(
-        [
-            (ENDPOINT_PARAM, ClientOption::Value(endpoint.into())),
-            (USERNAME_PARAM, ClientOption::Value(builder.client_options().username.to_string())),
-            (PASSWORD_PARAM, ClientOption::Secret(builder.client_options().password.clone())),
-            (
-                DEFAULT_DATABASE_PARAM,
-                ClientOption::Value(builder.client_options().default_database.to_string()),
-            ),
-            (
-                COMPRESSION_PARAM,
-                ClientOption::Value(builder.client_options().compression.to_string()),
-            ),
-        ]
-        .into_iter()
-        .map(|(k, v)| (k.to_string(), v)),
-    );
+    let mut params = [
+        (ENDPOINT_PARAM, ClientOption::Value(endpoint.into())),
+        (USERNAME_PARAM, ClientOption::Value(builder.client_options().username.clone())),
+        (PASSWORD_PARAM, ClientOption::Secret(builder.client_options().password.clone())),
+        (
+            DEFAULT_DATABASE_PARAM,
+            ClientOption::Value(builder.client_options().default_database.clone()),
+        ),
+        (COMPRESSION_PARAM, ClientOption::Value(builder.client_options().compression.to_string())),
+    ]
+    .into_iter()
+    .map(|(k, v)| (k.to_string(), v))
+    .collect::<HashMap<_, _>>();
 
     if let Some(domain) = builder.client_options().domain.as_ref() {
-        params.insert(DOMAIN_PARAM.into(), ClientOption::Value(domain.to_string()));
+        drop(params.insert(DOMAIN_PARAM.into(), ClientOption::Value(domain.clone())));
     }
     if let Some(cafile) = builder.client_options().cafile.as_ref() {
-        params
-            .insert(CAFILE_PARAM.into(), ClientOption::Value(cafile.to_string_lossy().to_string()));
+        drop(params.insert(
+            CAFILE_PARAM.into(),
+            ClientOption::Value(cafile.to_string_lossy().to_string()),
+        ));
     }
     if builder.client_options().use_tls {
-        params.insert(USE_TLS_PARAM.into(), ClientOption::Value("true".to_string()));
+        drop(params.insert(USE_TLS_PARAM.into(), ClientOption::Value("true".to_string())));
     }
-
-    // TODO: Remove - uncomment this when clickhouse-arrow makes props pub
-    // if builder.client_options().ext.arrow.map(|a|
-    // a.strings_as_strings).unwrap_or_default() { .. }
-    params.insert(STRINGS_AS_STRINGS_PARAM.into(), ClientOption::Value("true".to_string()));
+    if builder.client_options().ext.arrow.is_some_and(|a| a.strings_as_strings) {
+        drop(
+            params.insert(STRINGS_AS_STRINGS_PARAM.into(), ClientOption::Value("true".to_string())),
+        );
+    }
 
     #[cfg(feature = "cloud")]
     if let Some(to) = builder.client_options().ext.cloud.timeout {
-        params.insert(CLOUD_TIMEOUT_PARAM.into(), ClientOption::Value(to.to_string()));
+        drop(params.insert(CLOUD_TIMEOUT_PARAM.into(), ClientOption::Value(to.to_string())));
     }
 
     #[cfg(feature = "cloud")]
     if builder.client_options().ext.cloud.wakeup {
-        params.insert(CLOUD_WAKEUP_PARAM.into(), ClientOption::Value("true".to_string()));
+        drop(params.insert(CLOUD_WAKEUP_PARAM.into(), ClientOption::Value("true".to_string())));
     }
 
     // Settings
@@ -191,16 +194,15 @@ pub fn pool_builder_to_params(
     Ok(ClientOptionParams(params))
 }
 
-pub fn params_to_pool_builder(
+/// Converts a `HashMap` of parameters to an `ArrowConnectionPoolBuilder`.
+///
+/// # Errors
+/// - Returns an error if the parameters are invalid.
+pub fn params_to_pool_builder<S: ::std::hash::BuildHasher>(
     endpoint: impl Into<Destination>,
-    params: &mut HashMap<String, String>,
+    params: &mut HashMap<String, String, S>,
     ignore_settings: bool,
 ) -> Result<ArrowConnectionPoolBuilder> {
-    // TODO: Remove
-    // // Endpoint
-    // let Some(endpoint) = params.remove(ENDPOINT_PARAM) else {
-    //     return exec_err!("Endpoint is required for ClickHouse");
-    // };
     let destination = endpoint.into();
     let endpoint = destination.to_string();
 
@@ -209,7 +211,7 @@ pub fn params_to_pool_builder(
     let password = params.remove(PASSWORD_PARAM).map(Secret::new).unwrap_or_default();
 
     // This is set to "default" since datafusion drives the schema. DDL's don't work otherwise
-    let _ = params.remove(DEFAULT_DATABASE_PARAM);
+    drop(params.remove(DEFAULT_DATABASE_PARAM));
     let default_database = "default";
 
     let domain = params.remove(DOMAIN_PARAM);
@@ -225,8 +227,9 @@ pub fn params_to_pool_builder(
         .unwrap_or_default();
     let strings_as_strings = params.remove(STRINGS_AS_STRINGS_PARAM).map(|s| s == "true");
     let arrow_options = strings_as_strings
-        .map(|s| ArrowOptions::default().with_strings_as_strings(s))
-        .unwrap_or(ArrowOptions::default().with_strings_as_strings(true));
+        .map_or(ArrowOptions::default().with_strings_as_strings(true), |s| {
+            ArrowOptions::default().with_strings_as_strings(s)
+        });
     #[cfg(feature = "cloud")]
     let cloud_timeout = if let Some(to) = params.remove(CLOUD_TIMEOUT_PARAM) {
         to.parse::<u64>().ok()
@@ -240,7 +243,7 @@ pub fn params_to_pool_builder(
     let pool_max_size = params.remove(POOL_MAX_SIZE_PARAM).and_then(|p| p.parse::<u32>().ok());
     let pool_min_idle = params.remove(POOL_MIN_IDLE_PARAM).and_then(|p| p.parse::<u32>().ok());
     let pool_test_on_checkout =
-        params.remove(POOL_TEST_ON_CHECK_OUT_PARAM).map(|s| s == "true").unwrap_or_default();
+        params.remove(POOL_TEST_ON_CHECK_OUT_PARAM).is_some_and(|s| s == "true");
     let pool_max_lifetime =
         params.remove(POOL_MAX_LIFETIME_PARAM).and_then(|p| p.parse::<u64>().ok());
     let pool_idle_timeout =
@@ -248,7 +251,7 @@ pub fn params_to_pool_builder(
     let pool_connection_timeout =
         params.remove(POOL_CONNECTION_TIMEOUT_PARAM).and_then(|p| p.parse::<u64>().ok());
     let pool_retry_connection =
-        params.remove(POOL_RETRY_CONNECTION_PARAM).map(|p| p == "true").unwrap_or_default();
+        params.remove(POOL_RETRY_CONNECTION_PARAM).is_some_and(|p| p == "true");
 
     // Settings
     let settings = if ignore_settings || params.is_empty() {
@@ -275,9 +278,10 @@ pub fn params_to_pool_builder(
                 .with_arrow_options(arrow_options)
                 .with_settings(settings.unwrap_or_default());
             #[cfg(feature = "cloud")]
-            let bulder = builder.with_cloud_wakeup(cloud_wakeup);
+            let builder = builder.with_cloud_wakeup(cloud_wakeup);
             #[cfg(feature = "cloud")]
-            let bulider = cloud_timeout.map(|to| builder.with_cloud_timeout(to)).unwrap_or(builder);
+            let builder =
+                if let Some(to) = cloud_timeout { builder.with_cloud_timeout(to) } else { builder };
             let builder =
                 if let Some(domain) = domain { builder.with_domain(domain) } else { builder };
             if let Some(cafile) = cafile { builder.with_cafile(cafile) } else { builder }
@@ -306,8 +310,11 @@ pub fn params_to_pool_builder(
 pub fn create_options_to_params(create_options: CreateOptions) -> ClientOptionParams {
     let params = HashMap::from_iter([
         (ENGINE_PARAM.into(), ClientOption::Value(create_options.engine)),
-        (ORDER_BY_PARAM.into(), ClientOption::Value(vec_to_param(create_options.order_by))),
-        (PRIMARY_KEYS_PARAM.into(), ClientOption::Value(vec_to_param(create_options.primary_keys))),
+        (ORDER_BY_PARAM.into(), ClientOption::Value(vec_to_param(&create_options.order_by))),
+        (
+            PRIMARY_KEYS_PARAM.into(),
+            ClientOption::Value(vec_to_param(&create_options.primary_keys)),
+        ),
         (
             PARTITION_BY_PARAM.into(),
             ClientOption::Value(create_options.partition_by.unwrap_or_default()),
@@ -325,9 +332,14 @@ pub fn create_options_to_params(create_options: CreateOptions) -> ClientOptionPa
     ClientOptionParams(params)
 }
 
-pub fn params_to_create_options(
-    params: &mut HashMap<String, String>,
-    column_defaults: &HashMap<String, Expr>,
+/// Creates a `CreateOptions` from 'params' (`HashMap<String, String>`) and 'defaults'
+/// (`HashMap<String, Expr>`).
+///
+/// # Errors
+/// - Returns an error if the engine is missing.
+pub fn params_to_create_options<S: ::std::hash::BuildHasher>(
+    params: &mut HashMap<String, String, S>,
+    column_defaults: &HashMap<String, Expr, S>,
 ) -> Result<CreateOptions> {
     let Some(engine) = params.remove(ENGINE_PARAM) else {
         return exec_err!("Missing engine for table");
@@ -356,7 +368,7 @@ pub fn params_to_create_options(
         .collect::<Result<HashMap<_, _>>>()?;
 
     if let Some(defs) = params.remove(DEFAULTS_PARAM) {
-        defaults.extend(parse_param_hashmap(&defs))
+        defaults.extend(parse_param_hashmap(&defs));
     }
 
     let options =
@@ -384,11 +396,11 @@ pub fn params_to_create_options(
 
 // Convert ast::Expr to ClickHouse default string
 pub(crate) fn ast_expr_to_clickhouse_default(expr: &ast::Expr) -> Result<String> {
-    match expr {
-        ast::Expr::Value(ast::ValueWithSpan { value, .. }) => match value {
+    if let ast::Expr::Value(ast::ValueWithSpan { value, .. }) = expr {
+        match value {
             ast::Value::SingleQuotedString(s) => {
                 if s.starts_with('\'') && s.ends_with('\'') {
-                    Ok(s.to_string())
+                    Ok(s.clone())
                 } else if s.starts_with('"') && s.ends_with('"') {
                     Ok(s.trim_matches('"').to_string())
                 } else {
@@ -396,13 +408,14 @@ pub(crate) fn ast_expr_to_clickhouse_default(expr: &ast::Expr) -> Result<String>
                 }
             }
             // DoubleQuotedString is used to signify do not alter
-            ast::Value::DoubleQuotedString(s) => Ok(s.to_string()),
-            ast::Value::Number(n, _) => Ok(n.to_string()),
+            ast::Value::DoubleQuotedString(s) => Ok(s.clone()),
+            ast::Value::Number(n, _) => Ok(n.clone()),
             ast::Value::Boolean(b) => Ok(if *b { "1" } else { "0" }.to_string()),
             ast::Value::Null => Ok("NULL".to_string()),
             _ => plan_err!("Unsupported default value: {value:?}"),
-        },
-        _ => plan_err!("Unsupported default expression: {expr:?}"),
+        }
+    } else {
+        plan_err!("Unsupported default expression: {expr:?}")
     }
 }
 
@@ -416,5 +429,327 @@ pub(crate) fn default_str_to_expr(value: &str) -> Expr {
         s if !is_quoted(s) && s.parse::<i64>().is_ok() => lit(s.parse::<i64>().unwrap()),
         s if !is_quoted(s) && s.parse::<f64>().is_ok() => lit(s.parse::<f64>().unwrap()),
         s => lit(s),
+    }
+}
+
+#[cfg(all(test, feature = "test-utils"))]
+mod tests {
+    use std::collections::HashMap;
+
+    use clickhouse_arrow::{ArrowConnectionPoolBuilder, CompressionMethod, Destination};
+
+    use super::*;
+
+    #[test]
+    fn test_parse_param_hashmap_basic() {
+        let result = parse_param_hashmap("key1=value1,key2=value2");
+        let mut expected = HashMap::new();
+        drop(expected.insert("key1".to_string(), "value1".to_string()));
+        drop(expected.insert("key2".to_string(), "value2".to_string()));
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_parse_param_hashmap_empty() {
+        let result = parse_param_hashmap("");
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_parse_param_hashmap_single_pair() {
+        let result = parse_param_hashmap("single=value");
+        let mut expected = HashMap::new();
+        drop(expected.insert("single".to_string(), "value".to_string()));
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_parse_param_hashmap_malformed() {
+        // Test with malformed entries (no equals sign)
+        let result = parse_param_hashmap("key1=value1,malformed,key2=value2");
+        let mut expected = HashMap::new();
+        drop(expected.insert("key1".to_string(), "value1".to_string()));
+        drop(expected.insert("key2".to_string(), "value2".to_string()));
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_parse_param_hashmap_empty_values() {
+        let result = parse_param_hashmap("key1=,key2=value2");
+        let mut expected = HashMap::new();
+        drop(expected.insert("key1".to_string(), String::new()));
+        drop(expected.insert("key2".to_string(), "value2".to_string()));
+        assert_eq!(result, expected);
+    }
+
+    #[test]
+    fn test_pool_builder_to_params_basic() {
+        let destination = Destination::from("http://localhost:8123");
+        let builder = ArrowConnectionPoolBuilder::new(destination)
+            .configure_client(|c| c.with_username("test_user").with_database("test_db"));
+
+        let result = pool_builder_to_params("http://localhost:8123", &builder);
+        assert!(result.is_ok());
+
+        let params = result.unwrap();
+        assert_eq!(params.get(ENDPOINT_PARAM).unwrap().to_string(), "http://localhost:8123");
+        assert_eq!(params.get(USERNAME_PARAM).unwrap().to_string(), "test_user");
+        assert_eq!(params.get(DEFAULT_DATABASE_PARAM).unwrap().to_string(), "test_db");
+    }
+
+    #[test]
+    fn test_pool_builder_to_params_with_password() {
+        let destination = Destination::from("http://localhost:8123");
+        let builder = ArrowConnectionPoolBuilder::new(destination).configure_client(|c| {
+            c.with_username("test_user")
+                .with_password(Secret::new("secret_password"))
+                .with_database("test_db")
+        });
+
+        let result = pool_builder_to_params("http://localhost:8123", &builder);
+        assert!(result.is_ok());
+
+        let params = result.unwrap();
+        assert_eq!(params.get(PASSWORD_PARAM).unwrap().to_string(), "secret_password");
+    }
+
+    #[test]
+    fn test_pool_builder_to_params_with_compression() {
+        let destination = Destination::from("http://localhost:8123");
+        let builder = ArrowConnectionPoolBuilder::new(destination).configure_client(|c| {
+            c.with_username("test_user").with_compression(CompressionMethod::LZ4)
+        });
+
+        let result = pool_builder_to_params("http://localhost:8123", &builder);
+        assert!(result.is_ok());
+
+        let params = result.unwrap();
+        assert_eq!(
+            params.get(COMPRESSION_PARAM).unwrap().to_string(),
+            format!("{}", CompressionMethod::LZ4)
+        );
+    }
+
+    #[test]
+    fn test_pool_builder_to_params_with_tls() {
+        let destination = Destination::from("https://localhost:8443");
+        let builder =
+            ArrowConnectionPoolBuilder::new(destination).configure_client(|c| c.with_tls(true));
+
+        let result = pool_builder_to_params("https://localhost:8443", &builder);
+        assert!(result.is_ok());
+
+        let params = result.unwrap();
+        assert_eq!(params.get(USE_TLS_PARAM).unwrap().to_string(), "true");
+    }
+
+    #[test]
+    fn test_pool_builder_to_params_with_domain() {
+        let destination = Destination::from("http://localhost:8123");
+        let builder = ArrowConnectionPoolBuilder::new(destination)
+            .configure_client(|c| c.with_domain("test.domain.com"));
+
+        let result = pool_builder_to_params("http://localhost:8123", &builder);
+        assert!(result.is_ok());
+
+        let params = result.unwrap();
+        assert_eq!(params.get(DOMAIN_PARAM).unwrap().to_string(), "test.domain.com");
+    }
+
+    #[test]
+    fn test_params_to_pool_builder_basic() {
+        let mut params = HashMap::new();
+        drop(params.insert(USERNAME_PARAM.to_string(), "test_user".to_string()));
+        drop(params.insert(PASSWORD_PARAM.to_string(), "test_password".to_string()));
+        drop(params.insert(DEFAULT_DATABASE_PARAM.to_string(), "test_db".to_string()));
+
+        let destination = Destination::from("http://localhost:8123");
+        let result = params_to_pool_builder(destination, &mut params, false);
+        assert!(result.is_ok());
+
+        let builder = result.unwrap();
+        assert_eq!(builder.client_options().username, "test_user");
+        assert_eq!(builder.client_options().password.get(), "test_password");
+        // Note: default_database is always set to "default" regardless of input
+        assert_eq!(builder.client_options().default_database, "default");
+    }
+
+    #[test]
+    fn test_params_to_pool_builder_with_defaults() {
+        let mut params = HashMap::new();
+        // Don't provide username/password to test defaults
+
+        let destination = Destination::from("http://localhost:8123");
+        let result = params_to_pool_builder(destination, &mut params, false);
+        assert!(result.is_ok());
+
+        let builder = result.unwrap();
+        assert_eq!(builder.client_options().username, "default");
+        assert_eq!(builder.client_options().password.get(), "");
+        assert_eq!(builder.client_options().default_database, "default");
+    }
+
+    #[test]
+    fn test_params_to_pool_builder_with_compression() {
+        let mut params = HashMap::new();
+        drop(params.insert(COMPRESSION_PARAM.to_string(), "lz4".to_string()));
+
+        let destination = Destination::from("http://localhost:8123");
+        let result = params_to_pool_builder(destination, &mut params, false);
+        assert!(result.is_ok());
+
+        let builder = result.unwrap();
+        assert_eq!(builder.client_options().compression, CompressionMethod::LZ4);
+    }
+
+    #[test]
+    fn test_params_to_pool_builder_with_tls_flag() {
+        let mut params = HashMap::new();
+        drop(params.insert(USE_TLS_PARAM.to_string(), "true".to_string()));
+
+        let destination = Destination::from("http://localhost:8123");
+        let result = params_to_pool_builder(destination, &mut params, false);
+        assert!(result.is_ok());
+
+        let builder = result.unwrap();
+        assert!(builder.client_options().use_tls);
+    }
+
+    #[test]
+    fn test_params_to_pool_builder_with_tls_from_https() {
+        let mut params = HashMap::new();
+        // No explicit USE_TLS_PARAM, but https endpoint should enable TLS
+
+        let destination = Destination::from("https://localhost:8443");
+        let result = params_to_pool_builder(destination, &mut params, false);
+        assert!(result.is_ok());
+
+        let builder = result.unwrap();
+        assert!(builder.client_options().use_tls);
+    }
+
+    #[test]
+    fn test_params_to_pool_builder_with_domain() {
+        let mut params = HashMap::new();
+        drop(params.insert(DOMAIN_PARAM.to_string(), "example.com".to_string()));
+
+        let destination = Destination::from("http://localhost:8123");
+        let result = params_to_pool_builder(destination, &mut params, false);
+        assert!(result.is_ok());
+
+        let builder = result.unwrap();
+        assert_eq!(builder.client_options().domain, Some("example.com".to_string()));
+    }
+
+    #[test]
+    fn test_params_to_pool_builder_with_strings_as_strings() {
+        let mut params = HashMap::new();
+        drop(params.insert(STRINGS_AS_STRINGS_PARAM.to_string(), "true".to_string()));
+
+        let destination = Destination::from("http://localhost:8123");
+        let result = params_to_pool_builder(destination, &mut params, false);
+        assert!(result.is_ok());
+
+        let builder = result.unwrap();
+        assert!(builder.client_options().ext.arrow.unwrap().strings_as_strings);
+    }
+
+    #[test]
+    fn test_params_to_pool_builder_with_pool_settings() {
+        let mut params = HashMap::new();
+        drop(params.insert(POOL_MAX_SIZE_PARAM.to_string(), "20".to_string()));
+        drop(params.insert(POOL_MIN_IDLE_PARAM.to_string(), "5".to_string()));
+        drop(params.insert(POOL_TEST_ON_CHECK_OUT_PARAM.to_string(), "true".to_string()));
+
+        let destination = Destination::from("http://localhost:8123");
+        let result = params_to_pool_builder(destination, &mut params, false);
+        assert!(result.is_ok());
+
+        // The pool settings are applied via configure_pool, so we can't directly test them
+        // but we can verify the builder was created successfully
+        let _builder = result.unwrap();
+    }
+
+    #[test]
+    fn test_params_to_pool_builder_ignore_settings() {
+        let mut params = HashMap::new();
+        drop(params.insert("custom_setting".to_string(), "custom_value".to_string()));
+
+        let destination = Destination::from("http://localhost:8123");
+        let result = params_to_pool_builder(destination, &mut params, true);
+        assert!(result.is_ok());
+
+        // When ignore_settings is true, custom settings should be ignored
+        let _builder = result.unwrap();
+        // The params HashMap should still contain the custom setting since it's ignored
+        assert!(params.contains_key("custom_setting"));
+    }
+
+    #[test]
+    fn test_roundtrip_conversion() {
+        // Test that we can convert builder -> params -> builder
+        let original_destination = Destination::from("http://localhost:8123");
+        let original_builder = ArrowConnectionPoolBuilder::new(original_destination.clone())
+            .configure_client(|c| {
+                c.with_username("test_user")
+                    .with_password(Secret::new("test_password"))
+                    .with_database("test_db")
+                    .with_compression(CompressionMethod::LZ4)
+            });
+
+        // Convert to params
+        let params_result = pool_builder_to_params("http://localhost:8123", &original_builder);
+        assert!(params_result.is_ok());
+
+        let client_params = params_result.unwrap();
+        let mut string_params = client_params.into_params();
+
+        // Convert back to builder
+        let builder_result =
+            params_to_pool_builder(original_destination, &mut string_params, false);
+        assert!(builder_result.is_ok());
+
+        let new_builder = builder_result.unwrap();
+
+        // Verify key properties match
+        assert_eq!(new_builder.client_options().username, "test_user");
+        assert_eq!(new_builder.client_options().password.get(), "test_password");
+        assert_eq!(new_builder.client_options().compression, CompressionMethod::LZ4);
+        // Note: database will be "default" due to the forced override in params_to_pool_builder
+    }
+
+    #[test]
+    fn test_client_option_display() {
+        let secret_option = ClientOption::Secret(Secret::new("secret_value"));
+        let value_option = ClientOption::Value("plain_value".to_string());
+
+        assert_eq!(secret_option.to_string(), "secret_value");
+        assert_eq!(value_option.to_string(), "plain_value");
+    }
+
+    #[test]
+    fn test_client_option_params_deref() {
+        let mut params = HashMap::new();
+        drop(params.insert("key1".to_string(), ClientOption::Value("value1".to_string())));
+        drop(params.insert("key2".to_string(), ClientOption::Secret(Secret::new("secret"))));
+
+        let client_params = ClientOptionParams(params);
+
+        // Test Deref trait
+        assert_eq!(client_params.get("key1").unwrap().to_string(), "value1");
+        assert_eq!(client_params.get("key2").unwrap().to_string(), "secret");
+    }
+
+    #[test]
+    fn test_client_option_params_into_params() {
+        let mut params = HashMap::new();
+        drop(params.insert("key1".to_string(), ClientOption::Value("value1".to_string())));
+        drop(params.insert("key2".to_string(), ClientOption::Secret(Secret::new("secret"))));
+
+        let client_params = ClientOptionParams(params);
+        let string_params = client_params.into_params();
+
+        assert_eq!(string_params.get("key1").unwrap(), "value1");
+        assert_eq!(string_params.get("key2").unwrap(), "secret");
     }
 }
