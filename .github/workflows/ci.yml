@@ -31,8 +31,10 @@ jobs:
     - uses: dorny/paths-filter@v3
       id: changes
       with:
+        predicate-quantifier: 'every'
         filters: |
           code:
+            - '**'
             - '!**.md'
             - '!docs/**'
             - '!.claude/**'
