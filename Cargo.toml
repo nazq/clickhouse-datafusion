@@ -3,6 +3,7 @@ name = "clickhouse-datafusion"
 version = "0.1.0"
 edition = "2024"
 authors = ["George Lee Patterson <patterson.george@gmail.com>"]
+description = "High-performance ClickHouse integration for Apache DataFusion with federation support"
 license = "Apache-2.0"
 keywords = ["clickhouse", "datafusion", "arrow", "database", "performance"]
 categories = ["database"]
