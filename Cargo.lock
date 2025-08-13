@@ -805,9 +805,9 @@ dependencies = [
 
 [[package]]
 name = "clickhouse-arrow"
-version = "0.1.4"
+version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9b81dfb7ff599383a6bb3f42f5f4ab2d91fe147cbf3f99a43ac658f05890f574"
+checksum = "443b15485c273d2027af51be0d3ed7882ef6325be6cb408d82bc14d83dea16a0"
 dependencies = [
  "arc-swap",
  "arrow",
@@ -846,9 +846,9 @@ dependencies = [
 
 [[package]]
 name = "clickhouse-arrow-derive"
-version = "0.1.4"
+version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bb07be36bddf31a5ab4bdfbea0117a98403fb67777967e0fd98cf194bb2d6914"
+checksum = "41016f0c668c4f2c901c4a1de310dacfdc1d363a6db1869ff5d438dcfb0cc480"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3762,9 +3762,9 @@ checksum = "13c2bddecc57b384dee18652358fb23172facb8a2c51ccc10d74c157bdea3292"
 
 [[package]]
 name = "syn"
-version = "2.0.104"
+version = "2.0.105"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "17b6f705963418cdb9927482fa304bc562ece2fdd4f616084c50b7023b435a40"
+checksum = "7bc3fcb250e53458e712715cf74285c1f889686520d79294a9ef3bd7aa1fc619"
 dependencies = [
  "proc-macro2",
  "quote",
