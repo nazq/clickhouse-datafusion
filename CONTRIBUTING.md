@@ -45,14 +45,13 @@ just test
 # Or
 cargo test --features test-utils
 
-# Run specific test suites
-just test-one e2e_arrow
-# Or
-cargo test --test e2e_arrow --features test-utils
-cargo test --test e2e_native --features test-utils
-
 # Run with output visible
 cargo test --features test-utils -- --nocapture
+
+# Run specific test suites
+just test-one e2e
+# Or
+cargo test --test e2e --features test-utils
 ```
 
 ### Code Quality
@@ -66,8 +65,8 @@ cargo fmt
 # Run clippy
 cargo clippy --all-features --all-targets
 
-# Run against all features if feature specific work was added
-just check-features
+# Run the checks the CI will perform (and some extra)
+just checks
 
 # Check for security issues
 cargo audit
@@ -112,13 +111,7 @@ cargo audit
 
 Key components:
 
-- **Client Module** (`src/client/`): Connection management and query execution
-- **Protocol Implementation** (`src/native/`): `ClickHouse` wire protocol
-- **Data Formats**:
-  - Entrypoint (`src/formats/`): Internal type system
-  - Arrow Format (`src/formats/arrow/`, `src/arrow/`): Arrow `RecordBatch` integration
-  - Native Format (`src/formats/native/`, `src/native/`): Internal type system
-- **Type System** (`src/native/types/`, `src/arrow/types/`): Comprehensive `ClickHouse` type support
+- **TODO** (`src/todo`): Todo
 
 ## Reporting Issues
 
@@ -138,4 +131,4 @@ When reporting issues, please include:
 
 ## License
 
-By contributing, you agree that your contributions will be licensed under the MIT License.
+By contributing, you agree that your contributions will be licensed under the Apache 2.0 License.
