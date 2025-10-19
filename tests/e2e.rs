@@ -1629,7 +1629,8 @@ mod tests {
         // -----------------------------
         // Test multiple aggregates in one query
         let query = format!(
-            "SELECT COUNT(*) as cnt, SUM(id) as total, AVG(id) as avg_id, MIN(id) as min_id, MAX(id) as max_id
+            "SELECT COUNT(*) as cnt, SUM(id) as total, AVG(id) as avg_id, MIN(id) as min_id, \
+             MAX(id) as max_id
              FROM clickhouse.{db}.people"
         );
         let results = ctx.sql(&query).await?.collect().await?;

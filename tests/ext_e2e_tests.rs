@@ -12,6 +12,7 @@ use std::sync::Arc;
 
 use clickhouse_arrow::prelude::ClickHouseEngine;
 use clickhouse_arrow::test_utils::ClickHouseContainer;
+use clickhouse_datafusion::ClickHouseBuilder;
 #[cfg(feature = "federation")]
 use clickhouse_datafusion::federation::FederatedContext;
 use clickhouse_datafusion::prelude::datafusion::arrow::array::{Int64Array, StringArray};
@@ -24,7 +25,6 @@ use clickhouse_datafusion::prelude::datafusion::functions_aggregate::expr_fn::*;
 use clickhouse_datafusion::prelude::datafusion::functions_window::expr_fn::row_number;
 use clickhouse_datafusion::prelude::datafusion::logical_expr::JoinType;
 use clickhouse_datafusion::prelude::datafusion::prelude::*;
-use clickhouse_datafusion::ClickHouseBuilder;
 use futures_util::StreamExt;
 
 const TRACING_DIRECTIVES: &[(&str, &str)] = &[
@@ -36,52 +36,22 @@ const TRACING_DIRECTIVES: &[(&str, &str)] = &[
 
 // DataFrame API Tests
 #[cfg(feature = "test-utils")]
-e2e_test!(
-    dataframe_filtering,
-    tests::test_dataframe_filtering,
-    TRACING_DIRECTIVES,
-    None
-);
+e2e_test!(dataframe_filtering, tests::test_dataframe_filtering, TRACING_DIRECTIVES, None);
 
 #[cfg(feature = "test-utils")]
-e2e_test!(
-    dataframe_projection,
-    tests::test_dataframe_projection,
-    TRACING_DIRECTIVES,
-    None
-);
+e2e_test!(dataframe_projection, tests::test_dataframe_projection, TRACING_DIRECTIVES, None);
 
 #[cfg(feature = "test-utils")]
-e2e_test!(
-    dataframe_aggregations,
-    tests::test_dataframe_aggregations,
-    TRACING_DIRECTIVES,
-    None
-);
+e2e_test!(dataframe_aggregations, tests::test_dataframe_aggregations, TRACING_DIRECTIVES, None);
 
 #[cfg(feature = "test-utils")]
-e2e_test!(
-    dataframe_sorting,
-    tests::test_dataframe_sorting,
-    TRACING_DIRECTIVES,
-    None
-);
+e2e_test!(dataframe_sorting, tests::test_dataframe_sorting, TRACING_DIRECTIVES, None);
 
 #[cfg(feature = "test-utils")]
-e2e_test!(
-    dataframe_limits,
-    tests::test_dataframe_limits,
-    TRACING_DIRECTIVES,
-    None
-);
+e2e_test!(dataframe_limits, tests::test_dataframe_limits, TRACING_DIRECTIVES, None);
 
 #[cfg(feature = "test-utils")]
-e2e_test!(
-    dataframe_joins,
-    tests::test_dataframe_joins,
-    TRACING_DIRECTIVES,
-    None
-);
+e2e_test!(dataframe_joins, tests::test_dataframe_joins, TRACING_DIRECTIVES, None);
 
 #[cfg(feature = "test-utils")]
 e2e_test!(
@@ -92,88 +62,43 @@ e2e_test!(
 );
 
 #[cfg(feature = "test-utils")]
-e2e_test!(
-    dataframe_distinct,
-    tests::test_dataframe_distinct,
-    TRACING_DIRECTIVES,
-    None
-);
+e2e_test!(dataframe_distinct, tests::test_dataframe_distinct, TRACING_DIRECTIVES, None);
 
 #[cfg(feature = "test-utils")]
-e2e_test!(
-    dataframe_union,
-    tests::test_dataframe_union,
-    TRACING_DIRECTIVES,
-    None
-);
+e2e_test!(dataframe_union, tests::test_dataframe_union, TRACING_DIRECTIVES, None);
 
 // SQL Interface Tests
 #[cfg(feature = "test-utils")]
 e2e_test!(sql_joins, tests::test_sql_joins, TRACING_DIRECTIVES, None);
 
 #[cfg(feature = "test-utils")]
-e2e_test!(
-    sql_subqueries,
-    tests::test_sql_subqueries,
-    TRACING_DIRECTIVES,
-    None
-);
+e2e_test!(sql_subqueries, tests::test_sql_subqueries, TRACING_DIRECTIVES, None);
 
 #[cfg(feature = "test-utils")]
 e2e_test!(sql_ctes, tests::test_sql_ctes, TRACING_DIRECTIVES, None);
 
 #[cfg(feature = "test-utils")]
-e2e_test!(
-    sql_window_functions,
-    tests::test_sql_window_functions,
-    TRACING_DIRECTIVES,
-    None
-);
+e2e_test!(sql_window_functions, tests::test_sql_window_functions, TRACING_DIRECTIVES, None);
 
 #[cfg(feature = "test-utils")]
 e2e_test!(sql_union, tests::test_sql_union, TRACING_DIRECTIVES, None);
 
 // DDL Operations Tests
 #[cfg(feature = "test-utils")]
-e2e_test!(
-    ddl_operations,
-    tests::test_ddl_operations,
-    TRACING_DIRECTIVES,
-    None
-);
+e2e_test!(ddl_operations, tests::test_ddl_operations, TRACING_DIRECTIVES, None);
 
 // Complex Use Cases
 #[cfg(feature = "test-utils")]
-e2e_test!(
-    insert_operations,
-    tests::test_insert_operations,
-    TRACING_DIRECTIVES,
-    None
-);
+e2e_test!(insert_operations, tests::test_insert_operations, TRACING_DIRECTIVES, None);
 
 #[cfg(feature = "test-utils")]
-e2e_test!(
-    streaming_queries,
-    tests::test_streaming_queries,
-    TRACING_DIRECTIVES,
-    None
-);
+e2e_test!(streaming_queries, tests::test_streaming_queries, TRACING_DIRECTIVES, None);
 
 #[cfg(feature = "test-utils")]
-e2e_test!(
-    complex_joins_window,
-    tests::test_complex_joins_window,
-    TRACING_DIRECTIVES,
-    None
-);
+e2e_test!(complex_joins_window, tests::test_complex_joins_window, TRACING_DIRECTIVES, None);
 
 #[cfg(feature = "test-utils")]
-e2e_test!(
-    multi_database_workflows,
-    tests::test_multi_database_workflows,
-    TRACING_DIRECTIVES,
-    None
-);
+e2e_test!(multi_database_workflows, tests::test_multi_database_workflows, TRACING_DIRECTIVES, None);
 
 // Federation Tests
 #[cfg(all(feature = "test-utils", feature = "federation"))]
@@ -228,23 +153,18 @@ mod tests {
         // Insert test data using SQL
         ctx.sql(&format!(
             "INSERT INTO clickhouse.{db}.users (user_id, name, age, department, salary) VALUES \
-             (1, 'Alice', 30, 'Engineering', 75000.0), \
-             (2, 'Bob', 25, 'Engineering', 65000.0), \
-             (3, 'Carol', 35, 'Sales', 80000.0), \
-             (4, 'Dave', 28, 'Sales', 70000.0), \
-             (5, 'Eve', 40, 'Engineering', 95000.0)"
+             (1, 'Alice', 30, 'Engineering', 75000.0), (2, 'Bob', 25, 'Engineering', 65000.0), \
+             (3, 'Carol', 35, 'Sales', 80000.0), (4, 'Dave', 28, 'Sales', 70000.0), (5, 'Eve', \
+             40, 'Engineering', 95000.0)"
         ))
         .await?
         .collect()
         .await?;
 
         ctx.sql(&format!(
-            "INSERT INTO clickhouse.{db}.orders (order_id, user_id, total, order_date) VALUES \
-             (1, 1, 100.0, '2024-01-01'), \
-             (2, 1, 200.0, '2024-01-15'), \
-             (3, 2, 150.0, '2024-01-10'), \
-             (4, 3, 300.0, '2024-01-20'), \
-             (5, 3, 250.0, '2024-01-25')"
+            "INSERT INTO clickhouse.{db}.orders (order_id, user_id, total, order_date) VALUES (1, \
+             1, 100.0, '2024-01-01'), (2, 1, 200.0, '2024-01-15'), (3, 2, 150.0, '2024-01-10'), \
+             (4, 3, 300.0, '2024-01-20'), (5, 3, 250.0, '2024-01-25')"
         ))
         .await?
         .collect()
@@ -275,10 +195,8 @@ mod tests {
             .await?;
 
         // Test: WHERE age > 25
-        let df = ctx
-            .table(&format!("clickhouse.{db}.users"))
-            .await?
-            .filter(col("age").gt(lit(25)))?;
+        let df =
+            ctx.table(&format!("clickhouse.{db}.users")).await?.filter(col("age").gt(lit(25)))?;
 
         let results = df.collect().await?;
         assert!(!results.is_empty());
@@ -363,16 +281,10 @@ mod tests {
         assert!(!results.is_empty());
 
         // Test: GROUP BY with aggregates
-        let df = ctx
-            .table(&format!("clickhouse.{db}.users"))
-            .await?
-            .aggregate(
-                vec![col("department")],
-                vec![
-                    avg(col("salary")).alias("avg_salary"),
-                    count(lit(1)).alias("count"),
-                ],
-            )?;
+        let df = ctx.table(&format!("clickhouse.{db}.users")).await?.aggregate(
+            vec![col("department")],
+            vec![avg(col("salary")).alias("avg_salary"), count(lit(1)).alias("count")],
+        )?;
 
         let results = df.collect().await?;
         arrow::util::pretty::print_batches(&results)?;
@@ -408,13 +320,10 @@ mod tests {
         assert!(!results.is_empty());
 
         // Test: Multiple column sort
-        let df = ctx
-            .table(&format!("clickhouse.{db}.users"))
-            .await?
-            .sort(vec![
-                col("department").sort(true, true), // ascending
-                col("salary").sort(false, false),   // descending
-            ])?;
+        let df = ctx.table(&format!("clickhouse.{db}.users")).await?.sort(vec![
+            col("department").sort(true, true), // ascending
+            col("salary").sort(false, false),   // descending
+        ])?;
 
         let results = df.collect().await?;
         assert!(!results.is_empty());
@@ -440,19 +349,13 @@ mod tests {
             .await?;
 
         // Test: LIMIT 2
-        let df = ctx
-            .table(&format!("clickhouse.{db}.users"))
-            .await?
-            .limit(0, Some(2))?;
+        let df = ctx.table(&format!("clickhouse.{db}.users")).await?.limit(0, Some(2))?;
 
         let results = df.collect().await?;
         assert_eq!(results[0].num_rows(), 2);
 
         // Test: LIMIT with offset
-        let df = ctx
-            .table(&format!("clickhouse.{db}.users"))
-            .await?
-            .limit(2, Some(2))?; // Skip 2, take 2
+        let df = ctx.table(&format!("clickhouse.{db}.users")).await?.limit(2, Some(2))?; // Skip 2, take 2
 
         let results = df.collect().await?;
         assert!(!results.is_empty());
@@ -519,19 +422,16 @@ mod tests {
             .await?;
 
         // Test: ROW_NUMBER with PARTITION BY
-        let df = ctx
-            .table(&format!("clickhouse.{db}.users"))
-            .await?
-            .select(vec![
-                col("name"),
-                col("department"),
-                col("salary"),
-                row_number()
-                    .partition_by(vec![col("department")])
-                    .order_by(vec![col("salary").sort(false, false)])
-                    .build()?
-                    .alias("rank"),
-            ])?;
+        let df = ctx.table(&format!("clickhouse.{db}.users")).await?.select(vec![
+            col("name"),
+            col("department"),
+            col("salary"),
+            row_number()
+                .partition_by(vec![col("department")])
+                .order_by(vec![col("salary").sort(false, false)])
+                .build()?
+                .alias("rank"),
+        ])?;
 
         let results = df.collect().await?;
         arrow::util::pretty::print_batches(&results)?;
@@ -629,9 +529,8 @@ mod tests {
         // Test: INNER JOIN
         let df = ctx
             .sql(&format!(
-                "SELECT u.name, o.order_id, o.total \
-                 FROM clickhouse.{db}.users u \
-                 INNER JOIN clickhouse.{db}.orders o ON u.user_id = o.user_id"
+                "SELECT u.name, o.order_id, o.total FROM clickhouse.{db}.users u INNER JOIN \
+                 clickhouse.{db}.orders o ON u.user_id = o.user_id"
             ))
             .await?;
 
@@ -642,10 +541,9 @@ mod tests {
         // Test: LEFT JOIN with aggregation
         let df = ctx
             .sql(&format!(
-                "SELECT u.name, COALESCE(SUM(o.total), 0) as total_spent \
-                 FROM clickhouse.{db}.users u \
-                 LEFT JOIN clickhouse.{db}.orders o ON u.user_id = o.user_id \
-                 GROUP BY u.name"
+                "SELECT u.name, COALESCE(SUM(o.total), 0) as total_spent FROM \
+                 clickhouse.{db}.users u LEFT JOIN clickhouse.{db}.orders o ON u.user_id = \
+                 o.user_id GROUP BY u.name"
             ))
             .await?;
 
@@ -676,9 +574,8 @@ mod tests {
         // Test: Subquery in WHERE
         let df = ctx
             .sql(&format!(
-                "SELECT name, salary \
-                 FROM clickhouse.{db}.users \
-                 WHERE salary > (SELECT AVG(salary) FROM clickhouse.{db}.users)"
+                "SELECT name, salary FROM clickhouse.{db}.users WHERE salary > (SELECT \
+                 AVG(salary) FROM clickhouse.{db}.users)"
             ))
             .await?;
 
@@ -689,11 +586,8 @@ mod tests {
         // Test: Subquery in FROM
         let df = ctx
             .sql(&format!(
-                "SELECT department, avg_salary \
-                 FROM (SELECT department, AVG(salary) as avg_salary \
-                       FROM clickhouse.{db}.users \
-                       GROUP BY department) subq \
-                 WHERE avg_salary > 70000"
+                "SELECT department, avg_salary FROM (SELECT department, AVG(salary) as avg_salary \
+                 FROM clickhouse.{db}.users GROUP BY department) subq WHERE avg_salary > 70000"
             ))
             .await?;
 
@@ -724,15 +618,9 @@ mod tests {
         // Test: CTE
         let df = ctx
             .sql(&format!(
-                "WITH high_earners AS ( \
-                     SELECT * FROM clickhouse.{db}.users WHERE salary > 70000 \
-                 ), \
-                 department_stats AS ( \
-                     SELECT department, COUNT(*) as count, AVG(salary) as avg_salary \
-                     FROM high_earners \
-                     GROUP BY department \
-                 ) \
-                 SELECT * FROM department_stats"
+                "WITH high_earners AS ( SELECT * FROM clickhouse.{db}.users WHERE salary > 70000 \
+                 ), department_stats AS ( SELECT department, COUNT(*) as count, AVG(salary) as \
+                 avg_salary FROM high_earners GROUP BY department ) SELECT * FROM department_stats"
             ))
             .await?;
 
@@ -763,10 +651,9 @@ mod tests {
         // Test: Window functions
         let df = ctx
             .sql(&format!(
-                "SELECT name, department, salary, \
-                 ROW_NUMBER() OVER (PARTITION BY department ORDER BY salary DESC) as rank, \
-                 AVG(salary) OVER (PARTITION BY department) as dept_avg \
-                 FROM clickhouse.{db}.users"
+                "SELECT name, department, salary, ROW_NUMBER() OVER (PARTITION BY department \
+                 ORDER BY salary DESC) as rank, AVG(salary) OVER (PARTITION BY department) as \
+                 dept_avg FROM clickhouse.{db}.users"
             ))
             .await?;
 
@@ -798,8 +685,8 @@ mod tests {
         let df = ctx
             .sql(&format!(
                 "SELECT user_id, name FROM clickhouse.{db}.users WHERE department = 'Engineering' \
-                 UNION ALL \
-                 SELECT user_id, name FROM clickhouse.{db}.users WHERE department = 'Sales'"
+                 UNION ALL SELECT user_id, name FROM clickhouse.{db}.users WHERE department = \
+                 'Sales'"
             ))
             .await?;
 
@@ -844,9 +731,7 @@ mod tests {
         let _catalog = clickhouse.build(&ctx).await?;
 
         // Verify the table was created and can be queried
-        let df = ctx
-            .sql(&format!("SELECT * FROM clickhouse.{db}.test_table"))
-            .await?;
+        let df = ctx.sql(&format!("SELECT * FROM clickhouse.{db}.test_table")).await?;
         let results = df.collect().await?;
         assert!(results.is_empty()); // Table should be empty initially
 
@@ -862,9 +747,7 @@ mod tests {
         tokio::time::sleep(std::time::Duration::from_secs(2)).await;
 
         // Verify INSERT worked
-        let df = ctx
-            .sql(&format!("SELECT * FROM clickhouse.{db}.test_table WHERE id = 1"))
-            .await?;
+        let df = ctx.sql(&format!("SELECT * FROM clickhouse.{db}.test_table WHERE id = 1")).await?;
         let results = df.collect().await?;
         assert!(!results.is_empty());
 
@@ -908,45 +791,34 @@ mod tests {
         let _catalog = clickhouse.build(&ctx).await?;
 
         // Create local source data
-        let batch = RecordBatch::try_new(
-            Arc::clone(&schema),
-            vec![
-                Arc::new(Int64Array::from(vec![1, 2, 3])),
-                Arc::new(StringArray::from(vec!["Alice", "Bob", "Carol"])),
-            ],
-        )?;
+        let batch = RecordBatch::try_new(Arc::clone(&schema), vec![
+            Arc::new(Int64Array::from(vec![1, 2, 3])),
+            Arc::new(StringArray::from(vec!["Alice", "Bob", "Carol"])),
+        ])?;
 
         let mem_table = MemTable::try_new(schema, vec![vec![batch]])?;
         ctx.register_table("source_data", Arc::new(mem_table))?;
 
         // Test: INSERT via SQL SELECT
-        ctx.sql(&format!(
-            "INSERT INTO clickhouse.{db}.users (id, name) SELECT * FROM source_data"
-        ))
-        .await?
-        .collect()
-        .await?;
+        ctx.sql(&format!("INSERT INTO clickhouse.{db}.users (id, name) SELECT * FROM source_data"))
+            .await?
+            .collect()
+            .await?;
 
         // Verify insert
-        let df = ctx
-            .sql(&format!("SELECT * FROM clickhouse.{db}.users"))
-            .await?;
+        let df = ctx.sql(&format!("SELECT * FROM clickhouse.{db}.users")).await?;
         let results = df.collect().await?;
         arrow::util::pretty::print_batches(&results)?;
         assert!(results[0].num_rows() >= 3);
 
         // Test: INSERT via VALUES
-        ctx.sql(&format!(
-            "INSERT INTO clickhouse.{db}.users (id, name) VALUES (4, 'Dave')"
-        ))
-        .await?
-        .collect()
-        .await?;
+        ctx.sql(&format!("INSERT INTO clickhouse.{db}.users (id, name) VALUES (4, 'Dave')"))
+            .await?
+            .collect()
+            .await?;
 
         // Verify
-        let df = ctx
-            .sql(&format!("SELECT COUNT(*) as cnt FROM clickhouse.{db}.users"))
-            .await?;
+        let df = ctx.sql(&format!("SELECT COUNT(*) as cnt FROM clickhouse.{db}.users")).await?;
         let results = df.collect().await?;
         assert!(!results.is_empty());
 
@@ -971,9 +843,7 @@ mod tests {
             .await?;
 
         // Test: Streaming query
-        let df = ctx
-            .sql(&format!("SELECT * FROM clickhouse.{db}.users"))
-            .await?;
+        let df = ctx.sql(&format!("SELECT * FROM clickhouse.{db}.users")).await?;
         let stream = df.execute_stream().await?;
 
         // Process batches
@@ -1010,15 +880,11 @@ mod tests {
         // Test: Complex join with window function
         let df = ctx
             .sql(&format!(
-                "WITH user_purchases AS ( \
-                     SELECT u.user_id, u.name, o.order_id, o.total, \
-                            ROW_NUMBER() OVER (PARTITION BY u.user_id ORDER BY o.order_date DESC) as purchase_rank \
-                     FROM clickhouse.{db}.users u \
-                     INNER JOIN clickhouse.{db}.orders o ON u.user_id = o.user_id \
-                 ) \
-                 SELECT user_id, name, order_id, total \
-                 FROM user_purchases \
-                 WHERE purchase_rank <= 2"
+                "WITH user_purchases AS ( SELECT u.user_id, u.name, o.order_id, o.total, \
+                 ROW_NUMBER() OVER (PARTITION BY u.user_id ORDER BY o.order_date DESC) as \
+                 purchase_rank FROM clickhouse.{db}.users u INNER JOIN clickhouse.{db}.orders o \
+                 ON u.user_id = o.user_id ) SELECT user_id, name, order_id, total FROM \
+                 user_purchases WHERE purchase_rank <= 2"
             ))
             .await?;
 
@@ -1030,9 +896,7 @@ mod tests {
         Ok(())
     }
 
-    pub(super) async fn test_multi_database_workflows(
-        ch: Arc<ClickHouseContainer>,
-    ) -> Result<()> {
+    pub(super) async fn test_multi_database_workflows(ch: Arc<ClickHouseContainer>) -> Result<()> {
         let ctx = SessionContext::new();
         #[cfg(feature = "federation")]
         let ctx = ctx.federate();
@@ -1071,7 +935,8 @@ mod tests {
 
         // Insert test data using SQL
         ctx.sql(
-            "INSERT INTO clickhouse.analytics.events (event_id, event_type) VALUES (1, 'click'), (2, 'view')",
+            "INSERT INTO clickhouse.analytics.events (event_id, event_type) VALUES (1, 'click'), \
+             (2, 'view')",
         )
         .await?
         .collect()
@@ -1082,7 +947,10 @@ mod tests {
 
         // Query across databases
         let df = ctx
-            .sql("SELECT event_type, COUNT(*) as count FROM clickhouse.analytics.events GROUP BY event_type")
+            .sql(
+                "SELECT event_type, COUNT(*) as count FROM clickhouse.analytics.events GROUP BY \
+                 event_type",
+            )
             .await?;
 
         let results = df.collect().await?;
@@ -1091,10 +959,8 @@ mod tests {
 
         // Insert aggregated results
         ctx.sql(
-            "INSERT INTO clickhouse.reporting.summary \
-             SELECT event_type, COUNT(*) as count \
-             FROM clickhouse.analytics.events \
-             GROUP BY event_type",
+            "INSERT INTO clickhouse.reporting.summary SELECT event_type, COUNT(*) as count FROM \
+             clickhouse.analytics.events GROUP BY event_type",
         )
         .await?
         .collect()
@@ -1107,9 +973,7 @@ mod tests {
     // ==================== Federation Tests ====================
 
     #[cfg(feature = "federation")]
-    pub(super) async fn test_federation_cross_source(
-        ch: Arc<ClickHouseContainer>,
-    ) -> Result<()> {
+    pub(super) async fn test_federation_cross_source(ch: Arc<ClickHouseContainer>) -> Result<()> {
         let db = "test_federation";
 
         // Create federated context
@@ -1138,9 +1002,8 @@ mod tests {
         // Test: Cross-source join
         let df = ctx
             .sql(&format!(
-                "SELECT u.name, u.salary, s.segment \
-                 FROM clickhouse.{db}.users u \
-                 JOIN local_segments s ON u.user_id = s.user_id"
+                "SELECT u.name, u.salary, s.segment FROM clickhouse.{db}.users u JOIN \
+                 local_segments s ON u.user_id = s.user_id"
             ))
             .await?;
 

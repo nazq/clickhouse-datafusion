@@ -1,3 +1,4 @@
+#![allow(unused_crate_dependencies)]
 // Table Joins Example
 //
 // This example shows how to join multiple ClickHouse tables using DataFusion.
@@ -5,7 +6,7 @@
 // # Start ClickHouse (run in terminal):
 // ```bash
 // docker run -d --name clickhouse-example \
-//   -p 9000:9000 -p 8123:8123 \
+//   -p 9001:9000 -p 8124:8123 \
 //   -e CLICKHOUSE_USER=default \
 //   -e CLICKHOUSE_PASSWORD=password \
 //   clickhouse/clickhouse-server:latest
@@ -21,13 +22,14 @@
 // docker stop clickhouse-example && docker rm clickhouse-example
 // ```
 
+use std::sync::Arc;
+
 use clickhouse_arrow::prelude::ClickHouseEngine;
 use clickhouse_datafusion::prelude::*;
 use datafusion::arrow::array::RecordBatch;
 use datafusion::arrow::datatypes::{DataType, Field, Schema};
 use datafusion::logical_expr::JoinType;
 use datafusion::prelude::*;
-use std::sync::Arc;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -35,13 +37,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let ctx = SessionContext::new();
 
-    let clickhouse = ClickHouseBuilder::new("localhost:9000")
-        .configure_client(|c| {
-            c.with_username("default")
-                .with_password("password")
-        })
+    let clickhouse = ClickHouseBuilder::new("localhost:9001")
+        .configure_client(|c| c.with_username("default").with_password("password"))
         .build_catalog(&ctx, Some("clickhouse"))
         .await?;
+
+    // Clean up any existing tables from previous runs
+    let _ = ctx.sql("DROP TABLE IF EXISTS clickhouse.example_db.users").await;
+    let _ = ctx.sql("DROP TABLE IF EXISTS clickhouse.example_db.orders").await;
 
     // Create users table
     let users_schema = Arc::new(Schema::new(vec![
@@ -77,11 +80,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Insert users
     ctx.sql(
-        "INSERT INTO clickhouse.example_db.users (user_id, name, department) VALUES \
-         (1, 'Alice', 'Engineering'), \
-         (2, 'Bob', 'Sales'), \
-         (3, 'Carol', 'Marketing'), \
-         (4, 'Dave', 'Sales')"
+        "INSERT INTO clickhouse.example_db.users (user_id, name, department) VALUES (1, 'Alice', \
+         'Engineering'), (2, 'Bob', 'Sales'), (3, 'Carol', 'Marketing'), (4, 'Dave', 'Sales')",
     )
     .await?
     .collect()
@@ -89,12 +89,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Insert orders
     ctx.sql(
-        "INSERT INTO clickhouse.example_db.orders (order_id, user_id, total) VALUES \
-         (101, 1, 250.50), \
-         (102, 1, 150.00), \
-         (103, 2, 500.75), \
-         (104, 3, 99.99), \
-         (105, 1, 75.25)"
+        "INSERT INTO clickhouse.example_db.orders (order_id, user_id, total) VALUES (101, 1, \
+         250.50), (102, 1, 150.00), (103, 2, 500.75), (104, 3, 99.99), (105, 1, 75.25)",
     )
     .await?
     .collect()
@@ -108,19 +104,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let users = ctx.table("clickhouse.example_db.users").await?;
     let orders = ctx.table("clickhouse.example_db.orders").await?;
 
-    let df = users.join(
-        orders,
-        JoinType::Inner,
-        &["user_id"],
-        &["user_id"],
-        None,
-    )?
-    .select(vec![
-        col("name"),
-        col("department"),
-        col("order_id"),
-        col("total"),
-    ])?;
+    let df = users
+        .join(orders, JoinType::Inner, &["user_id"], &["user_id"], None)?
+        .select(vec![col("name"), col("department"), col("order_id"), col("total")])?;
 
     print_batches(&df.collect().await?)?;
 
@@ -128,11 +114,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\nExample 2: Total spending per user (using SQL)\n");
     let df = ctx
         .sql(
-            "SELECT u.name, u.department, COUNT(o.order_id) as order_count, SUM(o.total) as total_spent \
-             FROM clickhouse.example_db.users u \
-             LEFT JOIN clickhouse.example_db.orders o ON u.user_id = o.user_id \
-             GROUP BY u.name, u.department \
-             ORDER BY total_spent DESC"
+            "SELECT u.name, u.department, COUNT(o.order_id) as order_count, SUM(o.total) as \
+             total_spent FROM clickhouse.example_db.users u LEFT JOIN \
+             clickhouse.example_db.orders o ON u.user_id = o.user_id GROUP BY u.name, \
+             u.department ORDER BY total_spent DESC",
         )
         .await?;
 
@@ -142,12 +127,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\nExample 3: Users with total spending > 200\n");
     let df = ctx
         .sql(
-            "SELECT u.name, SUM(o.total) as total_spent \
-             FROM clickhouse.example_db.users u \
-             INNER JOIN clickhouse.example_db.orders o ON u.user_id = o.user_id \
-             GROUP BY u.name \
-             HAVING SUM(o.total) > 200 \
-             ORDER BY total_spent DESC"
+            "SELECT u.name, SUM(o.total) as total_spent FROM clickhouse.example_db.users u INNER \
+             JOIN clickhouse.example_db.orders o ON u.user_id = o.user_id GROUP BY u.name HAVING \
+             SUM(o.total) > 200 ORDER BY total_spent DESC",
         )
         .await?;
 

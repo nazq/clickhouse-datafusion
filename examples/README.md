@@ -17,11 +17,13 @@ Start a ClickHouse container in the background:
 
 ```bash
 docker run -d --name clickhouse-example \
-  -p 9000:9000 -p 8123:8123 \
+  -p 9001:9000 -p 8124:8123 \
   -e CLICKHOUSE_USER=default \
   -e CLICKHOUSE_PASSWORD=password \
   clickhouse/clickhouse-server:latest
 ```
+
+Note: We use ports 9001:9000 and 8124:8123 to avoid conflicts if you already have ClickHouse running.
 
 ### Step 2: Run an Example
 
@@ -40,6 +42,15 @@ cargo run --example 04_window_functions --features test-utils
 
 # Federation (requires federation feature)
 cargo run --example 05_federation --features "test-utils federation"
+
+# DROP TABLE operations
+cargo run --example 06_drop_tables --features test-utils
+
+# Parquet to ClickHouse
+cargo run --example 07_parquet_to_clickhouse --features test-utils
+
+# Parquet-ClickHouse federation (requires federation feature)
+cargo run --example 08_parquet_federation --features "test-utils federation"
 ```
 
 ### Step 3: Clean Up
@@ -59,6 +70,9 @@ docker stop clickhouse-example && docker rm clickhouse-example
 | `03_joins.rs` | Join multiple ClickHouse tables | `test-utils` |
 | `04_window_functions.rs` | Window functions and CTEs | `test-utils` |
 | `05_federation.rs` | Join ClickHouse with local data sources | `test-utils federation` |
+| `06_drop_tables.rs` | DROP TABLE operations and cleanup | `test-utils` |
+| `07_parquet_to_clickhouse.rs` | Read Parquet files and write to ClickHouse (varied data types) | `test-utils` |
+| `08_parquet_federation.rs` | Federated queries joining Parquet with ClickHouse | `test-utils federation` |
 
 ## Tips
 
@@ -90,4 +104,8 @@ docker logs clickhouse-example
 Make sure you have the required features enabled. For federation examples:
 ```bash
 cargo run --example 05_federation --features "test-utils federation"
+cargo run --example 08_parquet_federation --features "test-utils federation"
 ```
+
+**Parquet examples:**
+Examples 07 and 08 create temporary Parquet files in `/tmp/`. These are automatically cleaned up when the examples complete successfully.

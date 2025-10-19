@@ -1,3 +1,4 @@
+#![allow(unused_crate_dependencies)]
 // Basic DataFrame Filtering Example
 //
 // This example shows how to filter data from ClickHouse using DataFusion's DataFrame API.
@@ -5,7 +6,7 @@
 // # Start ClickHouse (run in terminal):
 // ```bash
 // docker run -d --name clickhouse-example \
-//   -p 9000:9000 -p 8123:8123 \
+//   -p 9001:9000 -p 8124:8123 \
 //   -e CLICKHOUSE_USER=default \
 //   -e CLICKHOUSE_PASSWORD=password \
 //   clickhouse/clickhouse-server:latest
@@ -21,12 +22,13 @@
 // docker stop clickhouse-example && docker rm clickhouse-example
 // ```
 
+use std::sync::Arc;
+
 use clickhouse_arrow::prelude::ClickHouseEngine;
 use clickhouse_datafusion::prelude::*;
 use datafusion::arrow::array::RecordBatch;
 use datafusion::arrow::datatypes::{DataType, Field, Schema};
 use datafusion::prelude::*;
-use std::sync::Arc;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -36,11 +38,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let ctx = SessionContext::new();
 
     // Connect to ClickHouse
-    let clickhouse = ClickHouseBuilder::new("localhost:9000")
-        .configure_client(|c| {
-            c.with_username("default")
-                .with_password("password")
-        })
+    let clickhouse = ClickHouseBuilder::new("localhost:9001")
+        .configure_client(|c| c.with_username("default").with_password("password"))
         .build_catalog(&ctx, Some("clickhouse"))
         .await?;
 
@@ -69,11 +68,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Insert sample data
     ctx.sql(
         "INSERT INTO clickhouse.example_db.users (user_id, name, age, department, salary) VALUES \
-         (1, 'Alice', 30, 'Engineering', 75000.0), \
-         (2, 'Bob', 25, 'Engineering', 65000.0), \
-         (3, 'Carol', 35, 'Sales', 80000.0), \
-         (4, 'Dave', 28, 'Sales', 70000.0), \
-         (5, 'Eve', 40, 'Engineering', 95000.0)"
+         (1, 'Alice', 30, 'Engineering', 75000.0), (2, 'Bob', 25, 'Engineering', 65000.0), (3, \
+         'Carol', 35, 'Sales', 80000.0), (4, 'Dave', 28, 'Sales', 70000.0), (5, 'Eve', 40, \
+         'Engineering', 95000.0)",
     )
     .await?
     .collect()
@@ -86,10 +83,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Example 1: Simple filter (age > 25)
     println!("Example 1: Filter users where age > 25\n");
-    let df = ctx
-        .table("clickhouse.example_db.users")
-        .await?
-        .filter(col("age").gt(lit(25)))?;
+    let df = ctx.table("clickhouse.example_db.users").await?.filter(col("age").gt(lit(25)))?;
 
     let results = df.collect().await?;
     print_batches(&results)?;
@@ -99,19 +93,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let df = ctx
         .table("clickhouse.example_db.users")
         .await?
-        .filter(
-            col("department").eq(lit("Engineering"))
-                .and(col("salary").gt(lit(70000)))
-        )?;
+        .filter(col("department").eq(lit("Engineering")).and(col("salary").gt(lit(70000))))?;
 
     let results = df.collect().await?;
     print_batches(&results)?;
 
     // Example 3: Using SQL instead
     println!("\nExample 3: Same query using SQL\n");
-    let df = ctx
-        .sql("SELECT * FROM clickhouse.example_db.users WHERE age BETWEEN 30 AND 40")
-        .await?;
+    let df =
+        ctx.sql("SELECT * FROM clickhouse.example_db.users WHERE age BETWEEN 30 AND 40").await?;
 
     let results = df.collect().await?;
     print_batches(&results)?;

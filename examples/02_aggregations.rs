@@ -1,3 +1,4 @@
+#![allow(unused_crate_dependencies)]
 // Aggregations and GROUP BY Example
 //
 // This example demonstrates grouping and aggregating data with ClickHouse and DataFusion.
@@ -5,7 +6,7 @@
 // # Start ClickHouse (run in terminal):
 // ```bash
 // docker run -d --name clickhouse-example \
-//   -p 9000:9000 -p 8123:8123 \
+//   -p 9001:9000 -p 8124:8123 \
 //   -e CLICKHOUSE_USER=default \
 //   -e CLICKHOUSE_PASSWORD=password \
 //   clickhouse/clickhouse-server:latest
@@ -21,13 +22,14 @@
 // docker stop clickhouse-example && docker rm clickhouse-example
 // ```
 
+use std::sync::Arc;
+
 use clickhouse_arrow::prelude::ClickHouseEngine;
 use clickhouse_datafusion::prelude::*;
 use datafusion::arrow::array::RecordBatch;
 use datafusion::arrow::datatypes::{DataType, Field, Schema};
 use datafusion::functions_aggregate::expr_fn::{avg, count, max};
 use datafusion::prelude::*;
-use std::sync::Arc;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -35,11 +37,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let ctx = SessionContext::new();
 
-    let clickhouse = ClickHouseBuilder::new("localhost:9000")
-        .configure_client(|c| {
-            c.with_username("default")
-                .with_password("password")
-        })
+    let clickhouse = ClickHouseBuilder::new("localhost:9001")
+        .configure_client(|c| c.with_username("default").with_password("password"))
         .build_catalog(&ctx, Some("clickhouse"))
         .await?;
 
@@ -64,13 +63,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     ctx.sql(
         "INSERT INTO clickhouse.example_db.employees (user_id, name, department, salary) VALUES \
-         (1, 'Alice', 'Engineering', 75000.0), \
-         (2, 'Bob', 'Engineering', 65000.0), \
-         (3, 'Carol', 'Sales', 80000.0), \
-         (4, 'Dave', 'Sales', 70000.0), \
-         (5, 'Eve', 'Engineering', 95000.0), \
-         (6, 'Frank', 'Marketing', 60000.0), \
-         (7, 'Grace', 'Marketing', 72000.0)"
+         (1, 'Alice', 'Engineering', 75000.0), (2, 'Bob', 'Engineering', 65000.0), (3, 'Carol', \
+         'Sales', 80000.0), (4, 'Dave', 'Sales', 70000.0), (5, 'Eve', 'Engineering', 95000.0), \
+         (6, 'Frank', 'Marketing', 60000.0), (7, 'Grace', 'Marketing', 72000.0)",
     )
     .await?
     .collect()
@@ -90,17 +85,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Example 2: GROUP BY with multiple aggregates
     println!("\nExample 2: Department statistics (count, avg salary, max salary)\n");
-    let df = ctx
-        .table("clickhouse.example_db.employees")
-        .await?
-        .aggregate(
-            vec![col("department")],
-            vec![
-                count(lit(1)).alias("employee_count"),
-                avg(col("salary")).alias("avg_salary"),
-                max(col("salary")).alias("max_salary"),
-            ],
-        )?;
+    let df = ctx.table("clickhouse.example_db.employees").await?.aggregate(
+        vec![col("department")],
+        vec![
+            count(lit(1)).alias("employee_count"),
+            avg(col("salary")).alias("avg_salary"),
+            max(col("salary")).alias("max_salary"),
+        ],
+    )?;
 
     print_batches(&df.collect().await?)?;
 
@@ -108,11 +100,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\nExample 3: Find departments with average salary > 70000 (using SQL)\n");
     let df = ctx
         .sql(
-            "SELECT department, AVG(salary) as avg_salary, COUNT(*) as count \
-             FROM clickhouse.example_db.employees \
-             GROUP BY department \
-             HAVING AVG(salary) > 70000 \
-             ORDER BY avg_salary DESC"
+            "SELECT department, AVG(salary) as avg_salary, COUNT(*) as count FROM \
+             clickhouse.example_db.employees GROUP BY department HAVING AVG(salary) > 70000 ORDER \
+             BY avg_salary DESC",
         )
         .await?;
 

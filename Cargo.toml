@@ -24,7 +24,7 @@ mocks = []                                                # Used for unit tests 
 
 [dependencies]
 async-trait = "0.1"
-clickhouse-arrow = { git = "https://github.com/GeorgeLeePatterson/clickhouse-arrow.git", branch = "main" }
+clickhouse-arrow = { version = "0.1.7" }
 dashmap = "6"
 datafusion = "50"
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
@@ -136,6 +136,18 @@ required-features = ["test-utils"]
 
 [[example]]
 name = "05_federation"
+required-features = ["test-utils", "federation"]
+
+[[example]]
+name = "06_drop_tables"
+required-features = ["test-utils"]
+
+[[example]]
+name = "07_parquet_to_clickhouse"
+required-features = ["test-utils"]
+
+[[example]]
+name = "08_parquet_federation"
 required-features = ["test-utils", "federation"]
 
 # INTEGRATION TESTS

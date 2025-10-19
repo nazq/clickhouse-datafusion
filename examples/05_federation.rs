@@ -1,3 +1,4 @@
+#![allow(unused_crate_dependencies)]
 // Federation Example - Joining ClickHouse with Local Data
 //
 // This example demonstrates federating ClickHouse tables with local in-memory tables.
@@ -5,7 +6,7 @@
 // # Start ClickHouse (run in terminal):
 // ```bash
 // docker run -d --name clickhouse-example \
-//   -p 9000:9000 -p 8123:8123 \
+//   -p 9001:9000 -p 8124:8123 \
 //   -e CLICKHOUSE_USER=default \
 //   -e CLICKHOUSE_PASSWORD=password \
 //   clickhouse/clickhouse-server:latest
@@ -22,6 +23,9 @@
 // ```
 
 #[cfg(feature = "federation")]
+use std::sync::Arc;
+
+#[cfg(feature = "federation")]
 use clickhouse_arrow::prelude::ClickHouseEngine;
 #[cfg(feature = "federation")]
 use clickhouse_datafusion::federation::FederatedContext;
@@ -35,8 +39,6 @@ use datafusion::arrow::datatypes::{DataType, Field, Schema};
 use datafusion::datasource::MemTable;
 #[cfg(feature = "federation")]
 use datafusion::prelude::*;
-#[cfg(feature = "federation")]
-use std::sync::Arc;
 
 #[cfg(feature = "federation")]
 #[tokio::main]
@@ -47,11 +49,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let ctx = SessionContext::new().federate();
 
     // Connect to ClickHouse
-    let clickhouse = ClickHouseBuilder::new("localhost:9000")
-        .configure_client(|c| {
-            c.with_username("default")
-                .with_password("password")
-        })
+    let clickhouse = ClickHouseBuilder::new("localhost:9001")
+        .configure_client(|c| c.with_username("default").with_password("password"))
         .build_catalog(&ctx, Some("clickhouse"))
         .await?;
 
@@ -76,11 +75,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Insert sales data into ClickHouse
     ctx.sql(
-        "INSERT INTO clickhouse.example_db.sales (product_id, quantity, revenue) VALUES \
-         (1, 100, 5000.0), \
-         (2, 150, 7500.0), \
-         (3, 80, 4000.0), \
-         (4, 200, 10000.0)"
+        "INSERT INTO clickhouse.example_db.sales (product_id, quantity, revenue) VALUES (1, 100, \
+         5000.0), (2, 150, 7500.0), (3, 80, 4000.0), (4, 200, 10000.0)",
     )
     .await?
     .collect()
@@ -96,14 +92,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Field::new("category", DataType::Utf8, false),
     ]));
 
-    let product_batch = RecordBatch::try_new(
-        product_schema.clone(),
-        vec![
-            Arc::new(Int32Array::from(vec![1, 2, 3, 4])),
-            Arc::new(StringArray::from(vec!["Widget A", "Widget B", "Gadget X", "Gadget Y"])),
-            Arc::new(StringArray::from(vec!["Widgets", "Widgets", "Gadgets", "Gadgets"])),
-        ],
-    )?;
+    let product_batch = RecordBatch::try_new(product_schema.clone(), vec![
+        Arc::new(Int32Array::from(vec![1, 2, 3, 4])),
+        Arc::new(StringArray::from(vec!["Widget A", "Widget B", "Gadget X", "Gadget Y"])),
+        Arc::new(StringArray::from(vec!["Widgets", "Widgets", "Gadgets", "Gadgets"])),
+    ])?;
 
     let mem_table = MemTable::try_new(product_schema, vec![vec![product_batch]])?;
     ctx.register_table("products", Arc::new(mem_table))?;
@@ -114,10 +107,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Example 1: Join ClickHouse sales data with local product catalog\n");
     let df = ctx
         .sql(
-            "SELECT p.product_name, p.category, s.quantity, s.revenue \
-             FROM clickhouse.example_db.sales s \
-             JOIN products p ON s.product_id = p.product_id \
-             ORDER BY s.revenue DESC"
+            "SELECT p.product_name, p.category, s.quantity, s.revenue FROM \
+             clickhouse.example_db.sales s JOIN products p ON s.product_id = p.product_id ORDER \
+             BY s.revenue DESC",
         )
         .await?;
 
@@ -127,14 +119,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\nExample 2: Total revenue by category (federated aggregation)\n");
     let df = ctx
         .sql(
-            "SELECT p.category, \
-                    SUM(s.quantity) as total_quantity, \
-                    SUM(s.revenue) as total_revenue, \
-                    AVG(s.revenue) as avg_revenue \
-             FROM clickhouse.example_db.sales s \
-             JOIN products p ON s.product_id = p.product_id \
-             GROUP BY p.category \
-             ORDER BY total_revenue DESC"
+            "SELECT p.category, SUM(s.quantity) as total_quantity, SUM(s.revenue) as \
+             total_revenue, AVG(s.revenue) as avg_revenue FROM clickhouse.example_db.sales s JOIN \
+             products p ON s.product_id = p.product_id GROUP BY p.category ORDER BY total_revenue \
+             DESC",
         )
         .await?;
 
@@ -142,7 +130,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("\n✅ Example completed successfully!");
     println!("\n💡 This example showed how to join ClickHouse tables with local in-memory data.");
-    println!("   You can also federate with Parquet files, CSV files, and other DataFusion sources!");
+    println!(
+        "   You can also federate with Parquet files, CSV files, and other DataFusion sources!"
+    );
 
     Ok(())
 }
@@ -150,7 +140,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 #[cfg(not(feature = "federation"))]
 fn main() {
     eprintln!("❌ This example requires the 'federation' feature.");
-    eprintln!("   Run with: cargo run --example 05_federation --features \"test-utils federation\"");
+    eprintln!(
+        "   Run with: cargo run --example 05_federation --features \"test-utils federation\""
+    );
     std::process::exit(1);
 }
 

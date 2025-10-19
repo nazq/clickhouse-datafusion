@@ -1,3 +1,4 @@
+#![allow(unused_crate_dependencies)]
 // Window Functions Example
 //
 // This example demonstrates using window functions with ClickHouse and DataFusion.
@@ -5,7 +6,7 @@
 // # Start ClickHouse (run in terminal):
 // ```bash
 // docker run -d --name clickhouse-example \
-//   -p 9000:9000 -p 8123:8123 \
+//   -p 9001:9000 -p 8124:8123 \
 //   -e CLICKHOUSE_USER=default \
 //   -e CLICKHOUSE_PASSWORD=password \
 //   clickhouse/clickhouse-server:latest
@@ -21,12 +22,13 @@
 // docker stop clickhouse-example && docker rm clickhouse-example
 // ```
 
+use std::sync::Arc;
+
 use clickhouse_arrow::prelude::ClickHouseEngine;
 use clickhouse_datafusion::prelude::*;
 use datafusion::arrow::array::RecordBatch;
 use datafusion::arrow::datatypes::{DataType, Field, Schema};
 use datafusion::prelude::*;
-use std::sync::Arc;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -34,13 +36,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let ctx = SessionContext::new();
 
-    let clickhouse = ClickHouseBuilder::new("localhost:9000")
-        .configure_client(|c| {
-            c.with_username("default")
-                .with_password("password")
-        })
+    let clickhouse = ClickHouseBuilder::new("localhost:9001")
+        .configure_client(|c| c.with_username("default").with_password("password"))
         .build_catalog(&ctx, Some("clickhouse"))
         .await?;
+
+    // Clean up any existing table from previous runs
+    let _ = ctx.sql("DROP TABLE IF EXISTS clickhouse.example_db.employees").await?.collect().await;
 
     let schema = Arc::new(Schema::new(vec![
         Field::new("employee_id", DataType::Int64, false),
@@ -62,15 +64,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("✓ Created database and table");
 
     ctx.sql(
-        "INSERT INTO clickhouse.example_db.employees (employee_id, name, department, salary) VALUES \
-         (1, 'Alice', 'Engineering', 75000.0), \
-         (2, 'Bob', 'Engineering', 65000.0), \
-         (3, 'Carol', 'Sales', 80000.0), \
-         (4, 'Dave', 'Sales', 70000.0), \
-         (5, 'Eve', 'Engineering', 95000.0), \
-         (6, 'Frank', 'Sales', 85000.0), \
-         (7, 'Grace', 'Marketing', 72000.0), \
-         (8, 'Henry', 'Marketing', 68000.0)"
+        "INSERT INTO clickhouse.example_db.employees (employee_id, name, department, salary) \
+         VALUES (1, 'Alice', 'Engineering', 75000.0), (2, 'Bob', 'Engineering', 65000.0), (3, \
+         'Carol', 'Sales', 80000.0), (4, 'Dave', 'Sales', 70000.0), (5, 'Eve', 'Engineering', \
+         95000.0), (6, 'Frank', 'Sales', 85000.0), (7, 'Grace', 'Marketing', 72000.0), (8, \
+         'Henry', 'Marketing', 68000.0)",
     )
     .await?
     .collect()
@@ -83,10 +81,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Example 1: Rank employees by salary within their department\n");
     let df = ctx
         .sql(
-            "SELECT name, department, salary, \
-                    ROW_NUMBER() OVER (PARTITION BY department ORDER BY salary DESC) as rank \
-             FROM clickhouse.example_db.employees \
-             ORDER BY department, rank"
+            "SELECT name, department, salary, ROW_NUMBER() OVER (PARTITION BY department ORDER BY \
+             salary DESC) as rank FROM clickhouse.example_db.employees ORDER BY department, rank",
         )
         .await?;
 
@@ -96,11 +92,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\nExample 2: Compare individual salary to department average\n");
     let df = ctx
         .sql(
-            "SELECT name, department, salary, \
-                    AVG(salary) OVER (PARTITION BY department) as dept_avg_salary, \
-                    salary - AVG(salary) OVER (PARTITION BY department) as diff_from_avg \
-             FROM clickhouse.example_db.employees \
-             ORDER BY department, salary DESC"
+            "SELECT name, department, salary, AVG(salary) OVER (PARTITION BY department) as \
+             dept_avg_salary, salary - AVG(salary) OVER (PARTITION BY department) as \
+             diff_from_avg FROM clickhouse.example_db.employees ORDER BY department, salary DESC",
         )
         .await?;
 
@@ -110,10 +104,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\nExample 3: Running total of salaries within each department\n");
     let df = ctx
         .sql(
-            "SELECT name, department, salary, \
-                    SUM(salary) OVER (PARTITION BY department ORDER BY salary) as running_total \
-             FROM clickhouse.example_db.employees \
-             ORDER BY department, salary"
+            "SELECT name, department, salary, SUM(salary) OVER (PARTITION BY department ORDER BY \
+             salary) as running_total FROM clickhouse.example_db.employees ORDER BY department, \
+             salary",
         )
         .await?;
 
@@ -123,15 +116,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\nExample 4: Top 2 earners in each department (using CTE)\n");
     let df = ctx
         .sql(
-            "WITH ranked_employees AS ( \
-                 SELECT name, department, salary, \
-                        ROW_NUMBER() OVER (PARTITION BY department ORDER BY salary DESC) as rank \
-                 FROM clickhouse.example_db.employees \
-             ) \
-             SELECT name, department, salary, rank \
-             FROM ranked_employees \
-             WHERE rank <= 2 \
-             ORDER BY department, rank"
+            "WITH ranked_employees AS ( SELECT name, department, salary, ROW_NUMBER() OVER \
+             (PARTITION BY department ORDER BY salary DESC) as rank FROM \
+             clickhouse.example_db.employees ) SELECT name, department, salary, rank FROM \
+             ranked_employees WHERE rank <= 2 ORDER BY department, rank",
         )
         .await?;
 
