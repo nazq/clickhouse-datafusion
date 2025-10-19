@@ -309,12 +309,37 @@ just coverage-lcov     # LCOV for CI
 
 ## Examples
 
-See the [examples](examples/) directory for a complete working example:
+See the [examples](https://github.com/GeorgeLeePatterson/clickhouse-datafusion/tree/main/examples) directory for standalone, runnable examples:
 
-- **Basic Integration**: Simple `ClickHouse` querying
-- **Federation**: Cross-database joins
-- **UDF Usage**: `ClickHouse` function examples
-- **Schema Management**: Table creation and management
+### Standalone Examples
+
+Each example is self-contained and includes Docker commands to run:
+
+1. **`01_basic_filtering.rs`** - DataFrame filtering with multiple conditions
+2. **`02_aggregations.rs`** - GROUP BY, COUNT, AVG, MAX aggregations
+3. **`03_joins.rs`** - INNER/LEFT joins between ClickHouse tables
+4. **`04_window_functions.rs`** - Window functions, partitioning, CTEs
+5. **`05_federation.rs`** - Federated queries joining ClickHouse with local data
+
+### Running Examples
+
+```bash
+# Start ClickHouse
+docker run -d --name clickhouse-example \
+  -p 9000:9000 -p 8123:8123 \
+  -e CLICKHOUSE_USER=default \
+  -e CLICKHOUSE_PASSWORD=password \
+  clickhouse/clickhouse-server:latest
+
+# Run any example
+cargo run --example 01_basic_filtering --features test-utils
+cargo run --example 05_federation --features "test-utils federation"
+
+# Clean up
+docker stop clickhouse-example && docker rm clickhouse-example
+```
+
+See [examples/README.md](examples/README.md) for detailed instructions and troubleshooting.
 
 ## Contributing
 
