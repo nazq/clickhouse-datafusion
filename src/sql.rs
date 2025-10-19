@@ -247,12 +247,12 @@ impl Display for SqlTable {
 
 /// Project a schema safely, taking into account empty columns.
 ///
-/// When DataFusion executes queries like `COUNT(*)`, it passes an empty projection
+/// When `DataFusion` executes queries like `COUNT(*)`, it passes an empty projection
 /// (`Some([])`) indicating no columns are needed. This function returns an empty
-/// schema in that case, as DataFusion only needs row counts, not column values.
+/// schema in that case, as `DataFusion` only needs row counts, not column values.
 ///
-/// The underlying SQL still generates `SELECT 1 FROM table` for ClickHouse, but
-/// the RecordBatchStream schema correctly reflects that no column data is accessed.
+/// The underlying SQL still generates `SELECT 1 FROM table` for `ClickHouse`, but
+/// the `RecordBatchStream` schema correctly reflects that no column data is accessed.
 ///
 /// # Errors
 /// - Returns an error if the schema projection fails
