@@ -19,7 +19,7 @@ federation = ["dep:datafusion-federation"]
 cloud = ["clickhouse-arrow/cloud"]
 
 # For testing and examples
-test-utils = ["clickhouse-arrow/test-utils", "dep:tokio"]
+test-utils = ["clickhouse-arrow/test-utils", "tokio/macros", "tokio/sync"]
 mocks = []                                                # Used for unit tests and connection mocking
 
 [dependencies]
@@ -30,10 +30,8 @@ datafusion = "50"
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
 parking_lot = "0.12"
 pin-project = "1"
+tokio = { version = "1", features = ["rt-multi-thread"] }
 tracing = "0.1"
-
-# Testing and examples
-tokio = { version = "1", features = ["sync", "rt", "macros"], optional = true }
 tracing-subscriber = { version = "0.3", features = ["fmt"] }
 
 # --- OPTIONAL ----
