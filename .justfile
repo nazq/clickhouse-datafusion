@@ -98,6 +98,7 @@ checks:
     cargo +nightly clippy --all-features --all-targets
     cargo +stable clippy --all-features --all-targets -- -D warnings
     just -f {{justfile()}} test
+    bash examples/run_all.sh
 
 # Initialize development environment for maintainers
 init-dev:
