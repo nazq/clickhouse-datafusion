@@ -113,8 +113,44 @@ incremental = false
 # EXAMPLES
 
 [[example]]
-name = "basic"
+name = "00_summary"
+required-features = ["test-utils", "federation"]
+
+[[example]]
+name = "01_basic_filtering"
 required-features = ["test-utils"]
+
+[[example]]
+name = "02_aggregations"
+required-features = ["test-utils"]
+
+[[example]]
+name = "03_joins"
+required-features = ["test-utils"]
+
+[[example]]
+name = "04_window_functions"
+required-features = ["test-utils"]
+
+[[example]]
+name = "05_federation"
+required-features = ["test-utils", "federation"]
+
+[[example]]
+name = "06_drop_tables"
+required-features = ["test-utils"]
+
+[[example]]
+name = "07_parquet_to_clickhouse"
+required-features = ["test-utils"]
+
+[[example]]
+name = "08_parquet_federation"
+required-features = ["test-utils", "federation"]
+
+[[example]]
+name = "99_Agent_All_in_one"
+required-features = ["test-utils", "federation"]
 
 # INTEGRATION TESTS
 
