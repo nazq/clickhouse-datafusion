@@ -1240,8 +1240,7 @@ mod tests {
         // -----------------------------
         // Test deeply nested subqueries
         //
-        // NOTE: This test previously failed due to COUNT(*) schema issues,
-        // but now works after the aggregation schema fix
+        // NOTE: This now works due to improved empty schema handling for COUNT(*) aggregations
         let query = format!(
             "SELECT
                 outer_name,
@@ -1262,9 +1261,9 @@ mod tests {
                 FROM clickhouse.{db}.people p
             ) t"
         );
-        let result = ctx.sql(&query).await?.collect().await;
-        // This now works after the aggregation schema fix - no longer fails
-        assert!(result.is_ok(), "Deeply nested subqueries should now work");
+        let result = ctx.sql(&query).await?.collect().await?;
+        arrow::util::pretty::print_batches(&result)?;
+        assert!(!result.is_empty(), "Deeply nested subqueries should return results");
         eprintln!(">>> Deeply nested subqueries test passed");
 
         // -----------------------------
