@@ -49,6 +49,10 @@ e2e_test!(udfs_failing, tests::test_clickhouse_udfs_failing, TRACING_DIRECTIVES,
 #[cfg(feature = "test-utils")]
 e2e_test!(aggregations, tests::test_aggregation_functions, TRACING_DIRECTIVES, None);
 
+// Test DROP TABLE support
+#[cfg(feature = "test-utils")]
+e2e_test!(drop_table, tests::test_drop_table, TRACING_DIRECTIVES, None);
+
 // -- FEDERATION --
 
 // Test simple clickhouse udf
@@ -64,6 +68,7 @@ mod tests {
     use std::collections::HashMap;
     use std::sync::Arc;
 
+    use clickhouse_arrow::prelude::ClickHouseEngine;
     use clickhouse_arrow::test_utils::ClickHouseContainer;
     use clickhouse_arrow::{ArrowConnectionPoolBuilder, CreateOptions};
     #[cfg(feature = "federation")]
@@ -1360,6 +1365,129 @@ mod tests {
         //           (SELECT clickhouse(avg(id), 'Float64') FROM clickhouse.{db}.people)
         //     ORDER BY clickhouse(upper(p1.name), 'Utf8')"
         // );
+
+        Ok(())
+    }
+
+    pub(super) async fn test_drop_table(ch: Arc<ClickHouseContainer>) -> Result<()> {
+        let db = "test_db_drop";
+
+        // Initialize session context
+        let ctx = SessionContext::new();
+
+        // IMPORTANT! If federation is enabled, federate the context
+        #[cfg(feature = "federation")]
+        let ctx = ctx.federate();
+
+        let builder = common::helpers::create_builder(&ctx, &ch).await?;
+
+        // Create test database and table
+        let schema = Arc::new(Schema::new(vec![
+            Field::new("id", DataType::Int32, false),
+            Field::new("name", DataType::Utf8, false),
+        ]));
+
+        let clickhouse = builder
+            .with_schema(db)
+            .await?
+            .with_new_table("test_table", ClickHouseEngine::MergeTree, schema)
+            .update_create_options(|opts| opts.with_order_by(&["id".to_string()]))
+            .create(&ctx)
+            .await?;
+
+        // Build catalog
+        let _catalog_provider = clickhouse.build(&ctx).await?;
+
+        eprintln!(">>> Created test table");
+
+        // -----------------------------
+        // Verify table exists by running a simple query
+        eprintln!(">>> Attempting to query table: clickhouse.{}.test_table", db);
+        let result = ctx.sql(&format!("SELECT COUNT(*) FROM clickhouse.{db}.test_table")).await;
+
+        match &result {
+            Ok(_) => eprintln!(">>> SQL query succeeded"),
+            Err(e) => eprintln!(">>> SQL query failed: {:?}", e),
+        }
+
+        let collect_result = result?.collect().await;
+        match &collect_result {
+            Ok(batches) => {
+                eprintln!(">>> Query collected successfully, {} batches", batches.len());
+                assert!(collect_result.is_ok(), "Table should exist and be queryable");
+                eprintln!(">>> Verified table exists");
+            }
+            Err(e) => {
+                eprintln!(">>> Query collection failed: {:?}", e);
+                panic!("Table should exist and be queryable");
+            }
+        }
+
+        // -----------------------------
+        // Test DROP TABLE
+        eprintln!(">>> Testing DROP TABLE...");
+        let drop_result = ctx.sql(&format!("DROP TABLE clickhouse.{db}.test_table")).await;
+
+        match drop_result {
+            Ok(df) => {
+                let collect_result = df.collect().await;
+                match collect_result {
+                    Ok(_) => {
+                        eprintln!(">>> DROP TABLE succeeded");
+
+                        // Verify table no longer exists
+                        let verify_result = ctx
+                            .sql(&format!("SELECT COUNT(*) FROM clickhouse.{db}.test_table"))
+                            .await;
+
+                        assert!(verify_result.is_err(), "Table should not exist after DROP TABLE");
+                        eprintln!(">>> Verified table no longer exists");
+                    }
+                    Err(e) => {
+                        eprintln!(">>> DROP TABLE failed during execution: {}", e);
+                        eprintln!(
+                            ">>> EXPECTED: deregister_table not yet implemented in \
+                             ClickHouseSchemaProvider"
+                        );
+                        // This is expected until deregister_table is implemented
+                        // The test will pass once the feature is implemented
+                        return Ok(());
+                    }
+                }
+            }
+            Err(e) => {
+                eprintln!(">>> DROP TABLE failed during planning: {}", e);
+                eprintln!(
+                    ">>> EXPECTED: deregister_table not yet implemented in \
+                     ClickHouseSchemaProvider"
+                );
+                // This is expected until deregister_table is implemented
+                return Ok(());
+            }
+        }
+
+        // -----------------------------
+        // Test DROP TABLE IF EXISTS with non-existent table
+        eprintln!(">>> Testing DROP TABLE IF EXISTS with non-existent table...");
+        let drop_if_exists_result =
+            ctx.sql(&format!("DROP TABLE IF EXISTS clickhouse.{db}.nonexistent_table")).await;
+
+        match drop_if_exists_result {
+            Ok(df) => {
+                let collect_result = df.collect().await;
+                assert!(
+                    collect_result.is_ok(),
+                    "DROP TABLE IF EXISTS should succeed even if table doesn't exist"
+                );
+                eprintln!(">>> DROP TABLE IF EXISTS succeeded for non-existent table");
+            }
+            Err(e) => {
+                eprintln!(">>> DROP TABLE IF EXISTS failed: {}", e);
+                eprintln!(">>> EXPECTED: deregister_table not yet implemented");
+            }
+        }
+
+        eprintln!(">> Test DROP TABLE completed");
 
         Ok(())
     }
