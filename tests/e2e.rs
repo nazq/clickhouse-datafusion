@@ -1235,7 +1235,7 @@ mod tests {
         // -----------------------------
         // Test deeply nested subqueries
         //
-        // NOTE: This test fails due to DataFusion's correlated subquery limitations
+        // NOTE: This now works due to improved empty schema handling for COUNT(*) aggregations
         let query = format!(
             "SELECT
                 outer_name,
@@ -1256,8 +1256,9 @@ mod tests {
                 FROM clickhouse.{db}.people p
             ) t"
         );
-        let result = ctx.sql(&query).await?.collect().await;
-        assert!(result.is_err(), "Deeply nested subqueries test should fail");
+        let result = ctx.sql(&query).await?.collect().await?;
+        arrow::util::pretty::print_batches(&result)?;
+        assert!(!result.is_empty(), "Deeply nested subqueries should return results");
         eprintln!(">>> Deeply nested subqueries test passed");
 
         // -----------------------------
@@ -1628,7 +1629,8 @@ mod tests {
         // -----------------------------
         // Test multiple aggregates in one query
         let query = format!(
-            "SELECT COUNT(*) as cnt, SUM(id) as total, AVG(id) as avg_id, MIN(id) as min_id, MAX(id) as max_id
+            "SELECT COUNT(*) as cnt, SUM(id) as total, AVG(id) as avg_id, MIN(id) as min_id, \
+             MAX(id) as max_id
              FROM clickhouse.{db}.people"
         );
         let results = ctx.sql(&query).await?.collect().await?;
