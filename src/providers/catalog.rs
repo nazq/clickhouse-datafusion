@@ -151,7 +151,7 @@ impl CatalogProvider for ClickHouseCatalogProvider {
 #[derive(Clone)]
 pub struct ClickHouseSchemaProvider {
     name:    String,
-    tables:  Vec<String>,
+    tables:  Arc<DashMap<String, ()>>,
     factory: ClickHouseTableFactory,
 }
 
@@ -164,6 +164,7 @@ impl std::fmt::Debug for ClickHouseSchemaProvider {
 impl ClickHouseSchemaProvider {
     pub fn new(name: String, tables: Vec<String>, pool: Arc<ClickHouseConnectionPool>) -> Self {
         let factory = ClickHouseTableFactory::new(pool);
+        let tables = Arc::new(tables.into_iter().map(|t| (t, ())).collect::<DashMap<_, _>>());
         Self { name, tables, factory }
     }
 
@@ -179,7 +180,9 @@ impl ClickHouseSchemaProvider {
 impl SchemaProvider for ClickHouseSchemaProvider {
     fn as_any(&self) -> &dyn Any { self }
 
-    fn table_names(&self) -> Vec<String> { self.tables.clone() }
+    fn table_names(&self) -> Vec<String> {
+        self.tables.iter().map(|entry| entry.key().clone()).collect()
+    }
 
     async fn table(&self, table: &str) -> Result<Option<Arc<dyn TableProvider>>> {
         if self.table_exist(table) {
@@ -194,7 +197,47 @@ impl SchemaProvider for ClickHouseSchemaProvider {
         }
     }
 
-    fn table_exist(&self, name: &str) -> bool { self.tables.iter().any(|t| t == name) }
+    fn table_exist(&self, name: &str) -> bool { self.tables.contains_key(name) }
+
+    fn deregister_table(&self, name: &str) -> Result<Option<Arc<dyn TableProvider>>> {
+        use datafusion::error::DataFusionError;
+
+        debug!(table = name, schema = self.name, "Deregistering table from ClickHouse");
+
+        // Check if table exists
+        if !self.table_exist(name) {
+            return Ok(None);
+        }
+
+        // Execute DROP TABLE on ClickHouse
+        let drop_sql =
+            format!("DROP TABLE IF EXISTS `{schema}`.`{table}`", schema = self.name, table = name);
+        debug!(sql = drop_sql, "Executing DROP TABLE on ClickHouse");
+
+        let pool = Arc::clone(self.factory.pool());
+
+        // Use tokio::task::block_in_place to execute async code in sync context
+        tokio::task::block_in_place(|| {
+            tokio::runtime::Handle::current().block_on(async {
+                let conn = pool.connect().await.map_err(|e| {
+                    DataFusionError::Execution(format!("Failed to connect to ClickHouse: {e}"))
+                })?;
+
+                let _ = conn.execute(&drop_sql, &[]).await.map_err(|e| {
+                    DataFusionError::Execution(format!("Failed to execute DROP TABLE: {e}"))
+                })?;
+
+                Ok::<(), DataFusionError>(())
+            })
+        })?;
+
+        // Remove from internal table list
+        drop(self.tables.remove(name));
+
+        debug!(table = name, schema = self.name, "Successfully deregistered table");
+
+        Ok(None)
+    }
 }
 
 #[cfg(feature = "federation")]

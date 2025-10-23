@@ -31,6 +31,9 @@ pub struct ClickHouseTableFactory {
 impl ClickHouseTableFactory {
     pub fn new(pool: Arc<ClickHouseConnectionPool>) -> Self { Self { pool, coerce_schema: false } }
 
+    /// Get a reference to the connection pool.
+    pub fn pool(&self) -> &Arc<ClickHouseConnectionPool> { &self.pool }
+
     /// Set whether to coerce the schema of the table provider.
     #[must_use]
     pub fn with_coercion(mut self, coerce_schema: bool) -> Self {

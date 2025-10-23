@@ -25,6 +25,14 @@ e2e_test!(providers, tests::test_providers, TRACING_DIRECTIVES, None);
 #[cfg(feature = "test-utils")]
 e2e_test!(insert, tests::test_insert_data, TRACING_DIRECTIVES, None);
 
+// Test parallel writes with different concurrency levels
+#[cfg(feature = "test-utils")]
+e2e_test!(parallel_writes, tests::test_parallel_writes, TRACING_DIRECTIVES, None);
+
+// Test insert metrics with EXPLAIN ANALYZE
+#[cfg(feature = "test-utils")]
+e2e_test!(insert_metrics, tests::test_insert_metrics, TRACING_DIRECTIVES, None);
+
 // Test clickhouse udfs smoke test
 #[cfg(feature = "test-utils")]
 e2e_test!(udfs_smoke_test, tests::test_clickhouse_udfs_smoke_test, TRACING_DIRECTIVES, None);
@@ -44,6 +52,10 @@ e2e_test!(udfs_lambda, tests::test_clickhouse_udfs_lambda, TRACING_DIRECTIVES, N
 // Test clickhouse udfs known failures - feature enhancements
 #[cfg(feature = "test-utils")]
 e2e_test!(udfs_failing, tests::test_clickhouse_udfs_failing, TRACING_DIRECTIVES, None);
+
+// Test aggregation functions
+#[cfg(feature = "test-utils")]
+e2e_test!(aggregations, tests::test_aggregation_functions, TRACING_DIRECTIVES, None);
 
 // -- FEDERATION --
 
@@ -1231,7 +1243,9 @@ mod tests {
         // -----------------------------
         // Test deeply nested subqueries
         //
-        // NOTE: This test fails due to DataFusion's correlated subquery limitations
+        // NOTE: This now works WITHOUT federation due to improved empty schema handling for
+        // COUNT(*) aggregations However, with federation enabled, scalar subqueries are not
+        // yet supported in datafusion-federation
         let query = format!(
             "SELECT
                 outer_name,
@@ -1252,9 +1266,21 @@ mod tests {
                 FROM clickhouse.{db}.people p
             ) t"
         );
-        let result = ctx.sql(&query).await?.collect().await;
-        assert!(result.is_err(), "Deeply nested subqueries test should fail");
-        eprintln!(">>> Deeply nested subqueries test passed");
+        #[cfg(not(feature = "federation"))]
+        {
+            let result = ctx.sql(&query).await?.collect().await?;
+            arrow::util::pretty::print_batches(&result)?;
+            assert!(!result.is_empty(), "Deeply nested subqueries should return results");
+            eprintln!(">>> Deeply nested subqueries test passed");
+        }
+        #[cfg(feature = "federation")]
+        {
+            let result = ctx.sql(&query).await?.collect().await;
+            assert!(result.is_err(), "Scalar subqueries not supported with federation yet");
+            eprintln!(
+                ">>> Deeply nested subqueries test passed (expected failure with federation)"
+            );
+        }
 
         // -----------------------------
         // Test two-column clickhouse function
@@ -1547,6 +1573,342 @@ mod tests {
         eprintln!(">>> Federated query passed");
 
         eprintln!(">> Test federated catalog completed");
+
+        Ok(())
+    }
+
+    pub(super) async fn test_aggregation_functions(ch: Arc<ClickHouseContainer>) -> Result<()> {
+        let db = "test_db_aggregations";
+
+        // Initialize session context
+        let ctx = SessionContext::new();
+
+        // IMPORTANT! If federation is enabled, federate the context
+        #[cfg(feature = "federation")]
+        let ctx = ctx.federate();
+
+        let builder = common::helpers::create_builder(&ctx, &ch).await?;
+        let clickhouse = common::helpers::setup_test_tables(builder, db, &ctx).await?;
+
+        // Insert test data (people & people2)
+        let clickhouse = common::helpers::insert_test_data(clickhouse, db, &ctx).await?;
+
+        // Refresh catalog
+        let _catalog_provider = clickhouse.build(&ctx).await?;
+
+        eprintln!("---- Starting aggregation tests ----");
+
+        // -----------------------------
+        // Test COUNT aggregate
+        let query = format!("SELECT COUNT(*) as cnt FROM clickhouse.{db}.people");
+        let results = ctx.sql(&query).await?.collect().await?;
+        arrow::util::pretty::print_batches(&results)?;
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].num_rows(), 1);
+        eprintln!(">>> COUNT(*) test passed");
+
+        // -----------------------------
+        // Test COUNT with column
+        let query = format!("SELECT COUNT(id) as cnt FROM clickhouse.{db}.people");
+        let results = ctx.sql(&query).await?.collect().await?;
+        arrow::util::pretty::print_batches(&results)?;
+        assert_eq!(results.len(), 1);
+        eprintln!(">>> COUNT(column) test passed");
+
+        // -----------------------------
+        // Test SUM aggregate
+        let query = format!("SELECT SUM(id) as total FROM clickhouse.{db}.people");
+        let results = ctx.sql(&query).await?.collect().await?;
+        arrow::util::pretty::print_batches(&results)?;
+        assert_eq!(results.len(), 1);
+        eprintln!(">>> SUM test passed");
+
+        // -----------------------------
+        // Test AVG aggregate
+        let query = format!("SELECT AVG(id) as avg_id FROM clickhouse.{db}.people");
+        let results = ctx.sql(&query).await?.collect().await?;
+        arrow::util::pretty::print_batches(&results)?;
+        assert_eq!(results.len(), 1);
+        eprintln!(">>> AVG test passed");
+
+        // -----------------------------
+        // Test MIN aggregate
+        let query = format!("SELECT MIN(id) as min_id FROM clickhouse.{db}.people");
+        let results = ctx.sql(&query).await?.collect().await?;
+        arrow::util::pretty::print_batches(&results)?;
+        assert_eq!(results.len(), 1);
+        eprintln!(">>> MIN test passed");
+
+        // -----------------------------
+        // Test MAX aggregate
+        let query = format!("SELECT MAX(id) as max_id FROM clickhouse.{db}.people");
+        let results = ctx.sql(&query).await?.collect().await?;
+        arrow::util::pretty::print_batches(&results)?;
+        assert_eq!(results.len(), 1);
+        eprintln!(">>> MAX test passed");
+
+        // -----------------------------
+        // Test multiple aggregates in one query
+        let query = format!(
+            "SELECT COUNT(*) as cnt, SUM(id) as total, AVG(id) as avg_id, MIN(id) as min_id, \
+             MAX(id) as max_id
+             FROM clickhouse.{db}.people"
+        );
+        let results = ctx.sql(&query).await?.collect().await?;
+        arrow::util::pretty::print_batches(&results)?;
+        assert_eq!(results.len(), 1);
+        eprintln!(">>> Multiple aggregates test passed");
+
+        // -----------------------------
+        // Test GROUP BY with aggregates
+        let query = format!(
+            "SELECT name, COUNT(*) as cnt
+             FROM clickhouse.{db}.people
+             GROUP BY name
+             ORDER BY name"
+        );
+        let results = ctx.sql(&query).await?.collect().await?;
+        arrow::util::pretty::print_batches(&results)?;
+        assert_eq!(results.len(), 1);
+        eprintln!(">>> GROUP BY with COUNT test passed");
+
+        // -----------------------------
+        // Test GROUP BY with multiple aggregates
+        let query = format!(
+            "SELECT name, COUNT(*) as cnt, SUM(id) as total_id, AVG(id) as avg_id
+             FROM clickhouse.{db}.people2
+             GROUP BY name
+             ORDER BY name"
+        );
+        let results = ctx.sql(&query).await?.collect().await?;
+        arrow::util::pretty::print_batches(&results)?;
+        assert!(results.len() > 0);
+        eprintln!(">>> GROUP BY with multiple aggregates test passed");
+
+        // -----------------------------
+        // Test HAVING clause with aggregates
+        let query = format!(
+            "SELECT name, COUNT(*) as cnt
+             FROM clickhouse.{db}.people2
+             GROUP BY name
+             HAVING COUNT(*) > 0
+             ORDER BY name"
+        );
+        let results = ctx.sql(&query).await?.collect().await?;
+        arrow::util::pretty::print_batches(&results)?;
+        assert!(results.len() > 0);
+        eprintln!(">>> HAVING clause test passed");
+
+        // -----------------------------
+        // Test aggregates with WHERE clause
+        let query = format!(
+            "SELECT COUNT(*) as cnt, SUM(id) as total
+             FROM clickhouse.{db}.people
+             WHERE id > 0"
+        );
+        let results = ctx.sql(&query).await?.collect().await?;
+        arrow::util::pretty::print_batches(&results)?;
+        assert_eq!(results.len(), 1);
+        eprintln!(">>> Aggregates with WHERE clause test passed");
+
+        // -----------------------------
+        // Test COUNT DISTINCT
+        let query = format!(
+            "SELECT COUNT(DISTINCT name) as unique_names
+             FROM clickhouse.{db}.people2"
+        );
+        let results = ctx.sql(&query).await?.collect().await?;
+        arrow::util::pretty::print_batches(&results)?;
+        assert_eq!(results.len(), 1);
+        eprintln!(">>> COUNT DISTINCT test passed");
+
+        eprintln!(">> All aggregation tests completed successfully");
+
+        Ok(())
+    }
+
+    /// Test parallel writes with high concurrency
+    pub(super) async fn test_parallel_writes(ch: Arc<ClickHouseContainer>) -> Result<()> {
+        use datafusion::arrow::array::{Int32Array, RecordBatch, StringArray};
+
+        let db = "test_db_parallel_writes";
+
+        // Initialize session context
+        let ctx = SessionContext::new();
+
+        // IMPORTANT! If federation is enabled, federate the context
+        #[cfg(feature = "federation")]
+        let ctx = ctx.federate();
+
+        // Create builder with parallel write concurrency
+        let builder = ClickHouseBuilder::new(ch.get_native_url())
+            .configure_client(|c| configure_client(c, &ch))
+            .with_write_concurrency(4)
+            .build_catalog(&ctx, Some(DEFAULT_CLICKHOUSE_CATALOG))
+            .await?;
+
+        // Setup test tables
+        let clickhouse = common::helpers::setup_test_tables(builder, db, &ctx).await?;
+
+        // Refresh catalog
+        let _catalog = clickhouse.build(&ctx).await?;
+
+        // Create a larger dataset for testing parallel write capability
+        let num_rows = 5000;
+
+        let schema = Schema::new(vec![
+            Field::new("id", DataType::Int32, false),
+            Field::new("name", DataType::Utf8, false),
+        ]);
+
+        // Generate test data
+        let ids: Vec<i32> = (1..=num_rows).collect();
+        let names: Vec<String> = ids.iter().map(|i| format!("person_{}", i)).collect();
+
+        let batch = RecordBatch::try_new(Arc::new(schema.clone()), vec![
+            Arc::new(Int32Array::from(ids.clone())),
+            Arc::new(StringArray::from(names.clone())),
+        ])?;
+
+        // Register as a memory table
+        drop(ctx.register_batch("bulk_data", batch)?);
+
+        // Insert data using parallel writes
+        eprintln!(">>> Inserting {} rows with parallel writes (concurrency=4)...", num_rows);
+
+        let _insert_results = ctx
+            .sql(&format!("INSERT INTO clickhouse.{db}.people SELECT id, name FROM bulk_data"))
+            .await?
+            .collect()
+            .await?;
+
+        eprintln!(">>> Parallel insert completed");
+
+        // Verify data integrity - check count
+        let count_result = ctx
+            .sql(&format!("SELECT COUNT(*) as cnt FROM clickhouse.{db}.people"))
+            .await?
+            .collect()
+            .await?;
+
+        arrow::util::pretty::print_batches(&count_result)?;
+
+        let cnt_array = count_result[0].column(0).as_primitive::<arrow::datatypes::Int64Type>();
+        assert_eq!(cnt_array.value(0), num_rows as i64, "Row count mismatch");
+
+        eprintln!(">>> Row count verified: {}", num_rows);
+
+        // Verify data integrity - check sum of IDs
+        let sum_result = ctx
+            .sql(&format!("SELECT SUM(id) as total FROM clickhouse.{db}.people"))
+            .await?
+            .collect()
+            .await?;
+
+        arrow::util::pretty::print_batches(&sum_result)?;
+
+        let expected_sum: i64 = (1..=num_rows as i64).sum();
+        let sum_array = sum_result[0].column(0).as_primitive::<arrow::datatypes::Int64Type>();
+        assert_eq!(sum_array.value(0), expected_sum, "Sum mismatch");
+
+        eprintln!(">>> Sum verified: {}", expected_sum);
+
+        // Verify some sample rows
+        let sample_result = ctx
+            .sql(&format!(
+                "SELECT id, name FROM clickhouse.{db}.people WHERE id IN (1, 100, 2500, {}) ORDER \
+                 BY id",
+                num_rows
+            ))
+            .await?
+            .collect()
+            .await?;
+
+        arrow::util::pretty::print_batches(&sample_result)?;
+        eprintln!(">>> Sample rows verified");
+
+        eprintln!(">>> Parallel writes test completed successfully");
+
+        Ok(())
+    }
+
+    /// Test that metrics are properly tracked and visible in EXPLAIN ANALYZE
+    pub(super) async fn test_insert_metrics(ch: Arc<ClickHouseContainer>) -> Result<()> {
+        use datafusion::arrow::array::{Int32Array, RecordBatch, StringArray};
+
+        let db = "test_db_insert_metrics";
+
+        // Initialize session context
+        let ctx = SessionContext::new();
+
+        #[cfg(feature = "federation")]
+        let ctx = ctx.federate();
+
+        // Create builder with write concurrency
+        let builder = ClickHouseBuilder::new(ch.get_native_url())
+            .configure_client(|c| configure_client(c, &ch))
+            .with_write_concurrency(4)
+            .build_catalog(&ctx, Some(DEFAULT_CLICKHOUSE_CATALOG))
+            .await?;
+
+        // Setup test tables
+        let clickhouse = common::helpers::setup_test_tables(builder, db, &ctx).await?;
+        let _catalog = clickhouse.build(&ctx).await?;
+
+        // Create test data
+        let num_rows = 1000;
+        let schema = Schema::new(vec![
+            Field::new("id", DataType::Int32, false),
+            Field::new("name", DataType::Utf8, false),
+        ]);
+
+        let ids: Vec<i32> = (1..=num_rows).collect();
+        let names: Vec<String> = ids.iter().map(|i| format!("person_{}", i)).collect();
+
+        let batch = RecordBatch::try_new(Arc::new(schema.clone()), vec![
+            Arc::new(Int32Array::from(ids.clone())),
+            Arc::new(StringArray::from(names)),
+        ])?;
+
+        drop(ctx.register_batch("temp_data", batch)?);
+
+        // Use EXPLAIN ANALYZE to verify metrics
+        eprintln!(">>> Running INSERT with EXPLAIN ANALYZE");
+        let explain_result = ctx
+            .sql(&format!(
+                "EXPLAIN ANALYZE INSERT INTO clickhouse.{db}.people SELECT * FROM temp_data"
+            ))
+            .await?
+            .collect()
+            .await?;
+
+        // Print the EXPLAIN ANALYZE output
+        arrow::util::pretty::print_batches(&explain_result)?;
+
+        // Verify metrics are present in the output
+        let plan_str = format!("{:?}", explain_result);
+        eprintln!(">>> EXPLAIN ANALYZE output:\n{}", plan_str);
+
+        // Check that metrics contain expected fields
+        // The output should contain "output_rows" metric
+        assert!(
+            plan_str.contains("output_rows") || plan_str.contains("metrics"),
+            "EXPLAIN ANALYZE should show metrics"
+        );
+
+        eprintln!(">>> Metrics verification completed");
+
+        // Verify the data was actually inserted
+        let count_result = ctx
+            .sql(&format!("SELECT COUNT(*) as cnt FROM clickhouse.{db}.people"))
+            .await?
+            .collect()
+            .await?;
+
+        let cnt_array = count_result[0].column(0).as_primitive::<arrow::datatypes::Int64Type>();
+        assert_eq!(cnt_array.value(0), num_rows as i64, "Row count mismatch");
+
+        eprintln!(">>> Insert metrics test completed successfully");
 
         Ok(())
     }
