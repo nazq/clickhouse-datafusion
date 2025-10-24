@@ -196,6 +196,9 @@ impl ClickHouseSessionContext {
         self
     }
 
+    /// Access the underlying session context by reference.
+    pub fn session_context(&self) -> &SessionContext { &self.inner }
+
     // TODO: Docs - especially mention that using the provided context WILL NOT WORK with pushdown
     pub fn into_session_context(self) -> SessionContext { self.inner }
 
@@ -220,6 +223,9 @@ impl ClickHouseSessionContext {
     }
 
     // TODO: Docs - mention and link reference to the `statement_to_plan` method on SessionContext
+    // TODO: Dev - move this logic into a function, to allow use of standard SessionContext
+    // (bootstrapped of course)
+    //
     /// # Errors
     /// - Returns an error if the SQL query is invalid or if the query execution fails.
     pub async fn statement_to_plan(
