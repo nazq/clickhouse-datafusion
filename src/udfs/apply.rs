@@ -182,10 +182,12 @@ impl ClickHouseApplyRewriter {
                 .collect::<Vec<_>>()
         };
 
-        // Create the lambda expression
+        // Create the lambda expression. ClickHouse uses arrow syntax 'x -> f(x)';
+        // sqlparser 0.61 (DF53) added an explicit syntax tag to LambdaFunction.
         let lambda_expr = ast::Expr::Lambda(ast::LambdaFunction {
             params: lambda_params,
             body:   Box::new(body_sql),
+            syntax: ast::LambdaSyntax::Arrow,
         });
 
         // Now create the higher-order function call with the lambda and original
