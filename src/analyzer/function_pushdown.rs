@@ -1351,9 +1351,11 @@ mod tests {
         Ok(())
     }
 
-    // TODO: This plan represents a feature that needs to be implemented: how to handle "mixed"
-    // functions in a plan node. Ideally the functions would be separated and the clickhouse
-    // function lowered, but that will take quite a bit of logic.
+    // TODO: This plan still passes the clickhouse function and pure-DataFusion
+    // aggregates through as a single un-separated node. Under DataFusion 52
+    // this produces correct runtime results (see e2e::test_clickhouse_udfs_failing),
+    // but the ideal would still be to separate the clickhouse pushdown from the
+    // local-only aggregates so each side runs where it's most efficient.
     #[cfg(feature = "mocks")]
     #[tokio::test]
     async fn test_complex_agg() -> Result<()> {
@@ -1370,7 +1372,7 @@ mod tests {
         {
             let expected_plan = r#"
             Projection: clickhouse(pow(t.id,Int64(2)),Utf8("Int32")) AS id_mod, count(t.id) AS total, max(clickhouse(exp(t.id),Utf8("Float64"))) AS max_exp
-              Aggregate: groupBy=[[clickhouse(power(CAST(t.id AS Int64), Int64(2)) AS pow(t.id, Int64(2)), Utf8("Int32"))]], aggr=[[count(t.id), max(clickhouse(exp(CAST(t.id AS Float64)), Utf8("Float64")))]]
+              Aggregate: groupBy=[[clickhouse(power(CAST(t.id AS Float64), Float64(2)) AS pow(t.id, Int64(2)), Utf8("Int32"))]], aggr=[[count(t.id), max(clickhouse(exp(CAST(t.id AS Float64)), Utf8("Float64")))]]
                 SubqueryAlias: t
                   TableScan: table2 projection=[id]
             "#
@@ -1407,7 +1409,7 @@ mod tests {
             Union
               Projection: table1.col1 AS id, clickhouse(exp(CAST(table1.col1 AS Float64)), Utf8("Float64")) AS func_id
                 TableScan: table1 projection=[col1], full_filters=[table1.col1 = Int32(1)]
-              Projection: table2.id, clickhouse(power(CAST(table2.id AS Int64), Int64(2)) AS pow(table2.id,Int64(2)), Utf8("Float64")) AS func_id
+              Projection: table2.id, clickhouse(power(CAST(table2.id AS Float64), Float64(2)) AS pow(table2.id,Int64(2)), Utf8("Float64")) AS func_id
                 TableScan: table2 projection=[id], full_filters=[table2.id = Int32(1)]
             "#
             .trim();

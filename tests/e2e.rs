@@ -53,6 +53,15 @@ e2e_test!(udfs_lambda, tests::test_clickhouse_udfs_lambda, TRACING_DIRECTIVES, N
 #[cfg(feature = "test-utils")]
 e2e_test!(udfs_failing, tests::test_clickhouse_udfs_failing, TRACING_DIRECTIVES, None);
 
+// Test clickhouse udfs in mixed-function aggregations (pushdown + local agg in one query)
+#[cfg(feature = "test-utils")]
+e2e_test!(
+    udfs_mixed_functions,
+    tests::test_clickhouse_udfs_mixed_functions,
+    TRACING_DIRECTIVES,
+    None
+);
+
 // Test aggregation functions
 #[cfg(feature = "test-utils")]
 e2e_test!(aggregations, tests::test_aggregation_functions, TRACING_DIRECTIVES, None);
@@ -404,7 +413,7 @@ mod tests {
 
             // Ensure execute works on sql table
             let query = format!("SELECT * FROM {db}.people");
-            let results = reader.as_ref().execute(&query, Arc::clone(&schema_people));
+            let results = reader.as_ref().execute(&query, Arc::clone(&schema_people), &[]);
             assert!(results.is_ok(), "Expected successful execution of SQL query");
             let result =
                 results.unwrap().collect::<Vec<_>>().await.into_iter().collect::<Result<Vec<_>>>();
@@ -1312,22 +1321,6 @@ mod tests {
         eprintln!(">>> Two-column clickhouse function across JOIN test passed");
 
         // -----------------------------
-        // Test aggregation over clickhouse function results AND mixed functions
-        //
-        // NOTE: This fails because of "mixed" functions. Needs to be resolved
-        let query = format!(
-            "SELECT clickhouse(`toString`(mod(p.id, 2)), 'Utf8') as id_mod,
-                    COUNT(p.id) as total,
-                    MAX(clickhouse(exp(p.id), 'Float64')) as max_exp,
-                    STRING_AGG(p.name, ',') as all_names
-            FROM clickhouse.{db}.people p
-            GROUP BY id_mod"
-        );
-        let results = ctx.sql(&query).await?.collect().await;
-        assert!(results.is_err());
-        eprintln!(">>> Aggregation over clickhouse function results test passed");
-
-        // -----------------------------
         // Test violation: ClickHouse function in aggregate with non-grouped column reference
         // This violates SQL GROUP BY semantics - using non-grouped column in aggregate context
         //
@@ -1392,6 +1385,50 @@ mod tests {
         //           (SELECT clickhouse(avg(id), 'Float64') FROM clickhouse.{db}.people)
         //     ORDER BY clickhouse(upper(p1.name), 'Utf8')"
         // );
+
+        Ok(())
+    }
+
+    /// Test aggregation over clickhouse function results AND mixed functions.
+    ///
+    /// This pairs a clickhouse-pushdown expression (`toString(mod(...))`) in
+    /// GROUP BY with a clickhouse-pushdown expression inside a DataFusion
+    /// aggregate (`MAX(clickhouse(exp(...)))`) and a pure-DataFusion aggregate
+    /// (`STRING_AGG`). DataFusion 52 routes the mixed plan correctly: the
+    /// clickhouse function rewrite isolates the pushdown portion, the rest
+    /// evaluates locally, and the final result is a standard grouped
+    /// aggregation.
+    pub(super) async fn test_clickhouse_udfs_mixed_functions(
+        ch: Arc<ClickHouseContainer>,
+    ) -> Result<()> {
+        let db = "test_db_udfs_mixed_functions";
+
+        let ctx = SessionContext::new();
+
+        #[cfg(feature = "federation")]
+        let ctx = ctx.federate();
+
+        let ctx = ClickHouseSessionContext::from(ctx);
+
+        let builder = common::helpers::create_builder(&ctx, &ch).await?;
+        let clickhouse = common::helpers::setup_test_tables(builder, db, &ctx).await?;
+        let clickhouse = common::helpers::insert_test_data(clickhouse, db, &ctx).await?;
+        let _catalog_provider = clickhouse.build(&ctx).await?;
+
+        let query = format!(
+            "SELECT clickhouse(`toString`(mod(p.id, 2)), 'Utf8') as id_mod,
+                    COUNT(p.id) as total,
+                    MAX(clickhouse(exp(p.id), 'Float64')) as max_exp,
+                    STRING_AGG(p.name, ',') as all_names
+            FROM clickhouse.{db}.people p
+            GROUP BY id_mod"
+        );
+        let results = ctx.sql(&query).await?.collect().await?;
+        arrow::util::pretty::print_batches(&results)?;
+        assert!(!results.is_empty(), "Mixed-function GROUP BY should return results");
+        let total_rows: usize = results.iter().map(|b| b.num_rows()).sum();
+        assert!(total_rows >= 2, "Expected at least 2 groups, got {total_rows}");
+        eprintln!(">>> Aggregation over clickhouse function results test passed");
 
         Ok(())
     }

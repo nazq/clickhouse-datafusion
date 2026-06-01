@@ -426,7 +426,12 @@ pub mod federation {
 
         fn dialect(&self) -> Arc<dyn Dialect> { self.arc_dialect() }
 
-        fn execute(&self, sql: &str, schema: SchemaRef) -> Result<SendableRecordBatchStream> {
+        fn execute(
+            &self,
+            sql: &str,
+            schema: SchemaRef,
+            _filters: &[Arc<dyn datafusion::physical_plan::PhysicalExpr>],
+        ) -> Result<SendableRecordBatchStream> {
             let sql = sql.to_string();
             let pool = Arc::clone(&self.pool);
             let coerce_schema = self.coerce_schema;

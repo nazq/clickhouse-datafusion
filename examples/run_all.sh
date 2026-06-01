@@ -29,28 +29,51 @@ passed=0
 failed=0
 current=0
 
-# Run each example
+# Run each example.
+#
+# Split build and run so we can report each separately. `cargo run` does both
+# in one invocation, which means a slow release compile looks identical to a
+# hung example. With `cargo build` then a direct binary execution, output is:
+#
+#   ✅ PASS: 02_aggregations (run 3s, build 24s)
+#
+# A warm cache will report build as 0–1s; a cold cache shows the real cost.
 while IFS=$'\t' read -r example features; do
     current=$((current + 1))
 
     echo "[$current/$total] Running example: $example (features: $features)"
     echo "---------------------------------------------------"
 
-    # Start example timer
-    example_start=$(date +%s)
-
-    if cargo run --example "$example" --features "$features" --release > /dev/null 2>&1; then
-        example_end=$(date +%s)
-        elapsed=$((example_end - example_start))
-        echo "✅ PASS: $example (${elapsed}s)"
-        passed=$((passed + 1))
-    else
-        example_end=$(date +%s)
-        elapsed=$((example_end - example_start))
-        echo "❌ FAIL: $example (${elapsed}s)"
+    # --- Build ---
+    build_start=$(date +%s)
+    if ! cargo build --example "$example" --features "$features" --release > /dev/null 2>&1; then
+        build_end=$(date +%s)
+        build_elapsed=$((build_end - build_start))
+        echo "❌ FAIL (build): $example (build ${build_elapsed}s)"
         failed=$((failed + 1))
         echo ""
-        echo "Example $example failed. Aborting..."
+        echo "Example $example failed to build. Aborting..."
+        exit 1
+    fi
+    build_end=$(date +%s)
+    build_elapsed=$((build_end - build_start))
+
+    # --- Run ---
+    # Execute the binary directly so we time only runtime, not cargo's
+    # up-to-date check.
+    run_start=$(date +%s)
+    if "./target/release/examples/$example" > /dev/null 2>&1; then
+        run_end=$(date +%s)
+        run_elapsed=$((run_end - run_start))
+        echo "✅ PASS: $example (run ${run_elapsed}s, build ${build_elapsed}s)"
+        passed=$((passed + 1))
+    else
+        run_end=$(date +%s)
+        run_elapsed=$((run_end - run_start))
+        echo "❌ FAIL (run): $example (run ${run_elapsed}s, build ${build_elapsed}s)"
+        failed=$((failed + 1))
+        echo ""
+        echo "Example $example failed at runtime. Aborting..."
         exit 1
     fi
 
