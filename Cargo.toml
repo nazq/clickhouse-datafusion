@@ -25,9 +25,12 @@ mocks = []
 
 [dependencies]
 async-trait = "0.1"
-clickhouse-arrow = "0.2.1"
+# Git-pinned to nazq/clickhouse-arrow#nq-arrow58 — the arrow58 bump; no
+# published release supports arrow 58 yet. Switch back to crates.io once
+# upstream (GeorgeLeePatterson/clickhouse-arrow) cuts an arrow58 release.
+clickhouse-arrow = { git = "https://github.com/nazq/clickhouse-arrow", branch = "nq-arrow58" }
 dashmap = "6"
-datafusion = "51"
+datafusion = "53"
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
 parking_lot = "0.12"
 pin-project = "1"
@@ -42,7 +45,7 @@ tracing-subscriber = { version = "0.3", features = ["fmt"] }
 # Note: Using crates.io version for publishing compatibility
 # Once PR #135 is merged upstream, we can update this dependency
 [dependencies.datafusion-federation]
-version = "0.4.12"
+version = "0.5"
 features = ["sql"]
 optional = true
 

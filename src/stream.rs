@@ -117,12 +117,31 @@ where
         mut self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> Poll<Option<Self::Item>> {
-        if !self.coerce_schema {
+        let empty_schema = self.schema.fields().is_empty();
+
+        if !self.coerce_schema && !empty_schema {
             return self.as_mut().project().stream.poll_next(cx);
         }
 
         Poll::Ready(match ready!(self.as_mut().project().stream.poll_next(cx)) {
-            Some(batch) => Some(self.coerce_batch_schema(batch?)),
+            Some(batch) => Some(if empty_schema {
+                // For 0-column projections (e.g. COUNT(*)), `self.schema` is
+                // empty but ClickHouse can't return zero columns — the unparser
+                // emits `SELECT 1 FROM table` as a placeholder. Strip the
+                // placeholder columns; DataFusion only reads the row count
+                // here. `with_row_count` is required: a column-less batch
+                // defaults to zero rows, which would silently zero out
+                // COUNT(*).
+                let rows = batch?.num_rows();
+                RecordBatch::try_new_with_options(
+                    Arc::clone(&self.schema),
+                    vec![],
+                    &datafusion::arrow::array::RecordBatchOptions::new().with_row_count(Some(rows)),
+                )
+                .map_err(Into::into)
+            } else {
+                self.coerce_batch_schema(batch?)
+            }),
             None => None,
         })
     }

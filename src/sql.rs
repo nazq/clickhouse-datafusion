@@ -281,7 +281,7 @@ pub struct ClickHouseSqlExec {
     projected_schema: SchemaRef,
     pool:             Arc<ClickHouseConnectionPool>,
     sql:              String,
-    properties:       PlanProperties,
+    properties:       Arc<PlanProperties>,
     coerce_schema:    bool,
 }
 
@@ -301,12 +301,12 @@ impl ClickHouseSqlExec {
             projected_schema: Arc::clone(&projected_schema),
             pool,
             sql,
-            properties: PlanProperties::new(
+            properties: Arc::new(PlanProperties::new(
                 EquivalenceProperties::new(projected_schema),
                 Partitioning::UnknownPartitioning(1),
                 EmissionType::Incremental,
                 Boundedness::Bounded,
-            ),
+            )),
             coerce_schema: false,
         })
     }
@@ -347,7 +347,7 @@ impl ExecutionPlan for ClickHouseSqlExec {
 
     fn schema(&self) -> SchemaRef { Arc::clone(&self.projected_schema) }
 
-    fn properties(&self) -> &PlanProperties { &self.properties }
+    fn properties(&self) -> &Arc<PlanProperties> { &self.properties }
 
     fn children(&self) -> Vec<&Arc<dyn ExecutionPlan>> { vec![] }
 
@@ -426,7 +426,12 @@ pub mod federation {
 
         fn dialect(&self) -> Arc<dyn Dialect> { self.arc_dialect() }
 
-        fn execute(&self, sql: &str, schema: SchemaRef) -> Result<SendableRecordBatchStream> {
+        fn execute(
+            &self,
+            sql: &str,
+            schema: SchemaRef,
+            _filters: &[Arc<dyn datafusion::physical_plan::PhysicalExpr>],
+        ) -> Result<SendableRecordBatchStream> {
             let sql = sql.to_string();
             let pool = Arc::clone(&self.pool);
             let coerce_schema = self.coerce_schema;

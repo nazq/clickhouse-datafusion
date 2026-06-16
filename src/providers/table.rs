@@ -215,8 +215,13 @@ mod federation {
             None
         }
 
-        fn execute(&self, query: &str, schema: SchemaRef) -> Result<SendableRecordBatchStream> {
-            self.reader.execute(query, schema)
+        fn execute(
+            &self,
+            query: &str,
+            schema: SchemaRef,
+            filters: &[Arc<dyn datafusion::physical_plan::PhysicalExpr>],
+        ) -> Result<SendableRecordBatchStream> {
+            self.reader.execute(query, schema, filters)
         }
 
         async fn table_names(&self) -> Result<Vec<String>> {
