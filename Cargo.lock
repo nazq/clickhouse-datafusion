@@ -742,7 +742,7 @@ checksum = "93a719913643003b84bd13022b4b7e703c09342cd03b679c4641c7d2e50dc34d"
 [[package]]
 name = "clickhouse-arrow"
 version = "0.2.1"
-source = "git+https://github.com/nazq/clickhouse-arrow?branch=nq-arrow58#d80db32d012b329770efc5dd97d8e4c41af2896f"
+source = "git+https://github.com/nazq/clickhouse-arrow?branch=integ#99604ce302a6d3f9a1a896bc553d5be171e2d0d6"
 dependencies = [
  "arc-swap",
  "arrow",
@@ -782,7 +782,7 @@ dependencies = [
 [[package]]
 name = "clickhouse-arrow-derive"
 version = "0.2.1"
-source = "git+https://github.com/nazq/clickhouse-arrow?branch=nq-arrow58#d80db32d012b329770efc5dd97d8e4c41af2896f"
+source = "git+https://github.com/nazq/clickhouse-arrow?branch=integ#99604ce302a6d3f9a1a896bc553d5be171e2d0d6"
 dependencies = [
  "proc-macro2",
  "quote",

@@ -25,10 +25,16 @@ mocks = []
 
 [dependencies]
 async-trait = "0.1"
-# Git-pinned to nazq/clickhouse-arrow#nq-arrow58 — the arrow58 bump; no
-# published release supports arrow 58 yet. Switch back to crates.io once
-# upstream (GeorgeLeePatterson/clickhouse-arrow) cuts an arrow58 release.
-clickhouse-arrow = { git = "https://github.com/nazq/clickhouse-arrow", branch = "nq-arrow58" }
+# Pinned to nazq/clickhouse-arrow#integ — our rolling integration branch
+# that accumulates patches we depend on but haven't landed upstream yet.
+# Currently carries:
+#   - arrow57 → arrow58 bump (PR #107)
+#   - d-types correctness: Date32 epoch + UUID byte order + IPv4/6 +
+#     wide ints + Decimal scale + SerializationInfo Sparse reads
+# Each patch also has a clean fix/* branch off upstream/main, ready to
+# PR upstream individually. When upstream lands them and cuts a release,
+# drop this dep and return to crates.io.
+clickhouse-arrow = { git = "https://github.com/nazq/clickhouse-arrow", branch = "integ" }
 dashmap = "6"
 datafusion = "53"
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
